@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+<title>Personal OS</title>
+
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0A1F16">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Personal OS">
+<link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div class="app">
+  <header class="header">
+    <h1>Personal OS</h1>
+    <p class="subtitle">The Architecture of Excellence.</p>
+  </header>
+
+  <main id="screen-dashboard" class="screen active">
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Today’s Path</div>
+        <div class="widget-meta">Command Panel</div>
+      </div>
+      <div class="widget-body">
+        <div class="placeholder-line"></div>
+        <div class="placeholder-line short"></div>
+      </div>
+    </section>
+
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Daily Budget</div>
+        <div class="widget-meta">Today</div>
+      </div>
+      <div class="widget-body">
+        <div class="kpi-row">
+          <div class="kpi-label">Remaining</div>
+          <div class="kpi-value">—</div>
+        </div>
+        <div class="progress-shell">
+          <div class="progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="meta-row">
+          <span class="meta">Spent: —</span>
+          <span class="meta">Budget: —</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <section class="widget">
+        <div class="widget-head">
+          <div class="widget-title">Gatekeeper</div>
+          <div class="widget-meta">72h</div>
+        </div>
+        <div class="widget-body">
+          <div class="placeholder-card"></div>
+          <div class="meta">No items yet</div>
+        </div>
+      </section>
+
+      <section class="widget">
+        <div class="widget-head">
+          <div class="widget-title">Performance</div>
+          <div class="widget-meta">Today</div>
+        </div>
+        <div class="widget-body">
+          <div class="kpi-row">
+            <div class="kpi-label">Score</div>
+            <div class="kpi-value">—%</div>
+          </div>
+          <div class="meta">Big-3 tracked in Phase 2</div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <main id="screen-journal" class="screen">
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Morning</div>
+        <div class="widget-meta">Intent</div>
+      </div>
+      <div class="widget-body">
+        <div class="placeholder-line"></div>
+        <div class="placeholder-line"></div>
+        <div class="placeholder-line short"></div>
+      </div>
+    </section>
+
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Evening</div>
+        <div class="widget-meta">Reflection</div>
+      </div>
+      <div class="widget-body">
+        <div class="placeholder-line"></div>
+        <div class="placeholder-line"></div>
+        <div class="placeholder-line short"></div>
+        <button class="btn" disabled>Close Day (Phase 2)</button>
+      </div>
+    </section>
+  </main>
+
+  <main id="screen-vault" class="screen">
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Vault</div>
+        <div class="widget-meta">Snapshots</div>
+      </div>
+      <div class="widget-body">
+        <div class="meta">Vault populates after “Close Day” in Phase 2.</div>
+      </div>
+    </section>
+  </main>
+
+  <main id="screen-wealth" class="screen">
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Wealth</div>
+        <div class="widget-meta">Settings</div>
+      </div>
+      <div class="widget-body">
+        <div class="meta">Budget engine settings will be here in Phase 2.</div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button data-target="dashboard" class="nav-btn active" aria-label="Dashboard">
+      <span class="nav-icon">▦</span>
+      <span class="nav-text">Dashboard</span>
+    </button>
+    <button data-target="journal" class="nav-btn" aria-label="Journal">
+      <span class="nav-icon">✎</span>
+      <span class="nav-text">Journal</span>
+    </button>
+    <button data-target="vault" class="nav-btn" aria-label="Vault">
+      <span class="nav-icon">⌁</span>
+      <span class="nav-text">Vault</span>
+    </button>
+    <button data-target="wealth" class="nav-btn" aria-label="Wealth">
+      <span class="nav-icon">◷</span>
+      <span class="nav-text">Wealth</span>
+    </button>
+  </nav>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
