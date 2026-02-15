@@ -1,0 +1,170 @@
+:root{
+  --bg:#0A1F16;
+
+  --accent-light:#A9B596;
+  --accent-core:#7E8A66;
+  --accent-deep:#4E5838;
+
+  --text-primary:rgba(255,255,255,0.94);
+  --text-secondary:rgba(255,255,255,0.72);
+  --text-meta:rgba(255,255,255,0.45);
+
+  --glass-fill:rgba(255,255,255,0.07);
+  --glass-border:rgba(255,255,255,0.13);
+  --glass-highlight:rgba(255,255,255,0.11);
+
+  --radius:28px;
+  --shadow:0 14px 44px rgba(0,0,0,0.42);
+
+  --progress-gradient:linear-gradient(90deg, #A9B596 0%, #7E8A66 55%, #4E5838 100%);
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+
+html,body{ height:100%; background:var(--bg); }
+
+body{
+  color:var(--text-primary);
+  padding-bottom:92px;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.app{ max-width:900px; margin:0 auto; }
+
+.header{ padding:28px 20px 12px; }
+.header h1{ font-size:22px; letter-spacing:0.2px; }
+.subtitle{ color:var(--text-meta); font-size:13px; margin-top:6px; }
+
+.screen{ display:none; padding:18px 16px 10px; }
+.screen.active{ display:block; }
+
+.widget{
+  background:var(--glass-fill);
+  border:1px solid var(--glass-border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:18px 18px 16px;
+  margin-bottom:16px;
+  backdrop-filter: blur(36px);
+  -webkit-backdrop-filter: blur(36px);
+  position:relative;
+  overflow:hidden;
+}
+
+.widget::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  border-radius:var(--radius);
+  pointer-events:none;
+  background: radial-gradient(1200px 220px at 20% 0%, rgba(255,255,255,0.11), transparent 60%);
+  opacity:0.9;
+}
+
+.widget.full{ width:100%; }
+
+.widget-head{ position:relative; z-index:1; display:flex; flex-direction:column; gap:3px; margin-bottom:12px; }
+.widget-title{ font-size:14px; color:var(--text-primary); letter-spacing:0.2px; }
+.widget-meta{ font-size:12px; color:var(--text-meta); }
+
+.widget-body{ position:relative; z-index:1; }
+
+.grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+
+@media (max-width:720px){
+  .grid-2{ grid-template-columns:1fr; }
+}
+
+.placeholder-line{
+  height:12px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.10);
+  border:1px solid rgba(255,255,255,0.06);
+  margin-bottom:10px;
+}
+.placeholder-line.short{ width:62%; }
+
+.placeholder-card{
+  height:40px;
+  border-radius:18px;
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.10);
+  margin-bottom:10px;
+}
+
+.kpi-row{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  margin-bottom:10px;
+}
+
+.kpi-label{ color:var(--text-secondary); font-size:12px; }
+.kpi-value{ color:var(--text-primary); font-size:18px; letter-spacing:0.2px; }
+
+.progress-shell{
+  width:100%;
+  height:10px;
+  border-radius:999px;
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.10);
+  overflow:hidden;
+}
+
+.progress-fill{
+  height:100%;
+  width:0%;
+  background:var(--progress-gradient);
+}
+
+.meta-row{ display:flex; justify-content:space-between; margin-top:10px; }
+.meta{ color:var(--text-meta); font-size:12px; }
+
+.btn{
+  margin-top:12px;
+  width:100%;
+  border:none;
+  border-radius:18px;
+  padding:12px 14px;
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.12);
+  color:var(--text-secondary);
+}
+
+.bottom-nav{
+  position:fixed;
+  left:0; right:0; bottom:0;
+  height:86px;
+  background:rgba(10,31,22,0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top:1px solid rgba(255,255,255,0.08);
+  display:flex;
+  justify-content:space-around;
+  align-items:center;
+  padding:10px 10px 22px;
+}
+
+.nav-btn{
+  background:transparent;
+  border:none;
+  color:var(--text-meta);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  min-width:70px;
+}
+
+.nav-btn.active{ color:var(--accent-light); }
+
+.nav-icon{
+  font-size:16px;
+  line-height:16px;
+  opacity:0.95;
+}
+
+.nav-text{ letter-spacing:0.1px; }
