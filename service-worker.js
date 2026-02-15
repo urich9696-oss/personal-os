@@ -1,4 +1,4 @@
-const CACHE_NAME = "personal-os-v2";
+const CACHE_NAME = "personal-os-v3";
 
 const URLS = [
   "/",
@@ -6,14 +6,15 @@ const URLS = [
   "/css/styles.css",
   "/manifest.webmanifest",
 
-  "/js/app.js",
   "/js/db.js",
   "/js/ui.js",
 
   "/js/screens/mindset.js",
   "/js/screens/path.js",
   "/js/screens/maintenance.js",
-  "/js/screens/finance.js"
+  "/js/screens/finance.js",
+
+  "/js/app.js"
 ];
 
 self.addEventListener("install", (event) => {
