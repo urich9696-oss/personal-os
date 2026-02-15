@@ -1,183 +1,257 @@
 (function () {
-  const { db, ui } = window.PersonalOS;
-  const { el, isoMonth, isoDate, money, hoursUntil, confirmBox, fileToDataUrl } = ui;
+  const R = () => window.POS && window.POS.registry;
+  const S = () => window.POS && window.POS.state;
+  const U = () => window.POS && window.POS.ui;
 
-  window.PersonalOS.screens = window.PersonalOS.screens || {};
-  window.PersonalOS.screens.finance = async function mountFinance() {
-    const overviewHost = document.getElementById("finance-overview");
-    const txHost = document.getElementById("finance-transactions");
-    const gkHost = document.getElementById("finance-gatekeeper");
+  function factory() {
+    return async function mountFinance(ctx) {
+      const ui = U();
+      const month = ui.isoMonth(new Date());
+      const date = ui.isoDate(new Date());
 
-    const month = isoMonth();
-    const date = isoDate();
+      async function render(openSection) {
+        const cats = await S().listFinanceCategories().catch(() => []);
+        const txns = await S().listTransactions(month).catch(() => []);
+        const gk = await S().listGatekeeper().catch(() => []);
 
-    async function render() {
-      const cats = await db.listFinanceCategories();
-      const txns = await db.listTransactions(month);
+        const income = txns.filter(t => t.type === "income").reduce((s,t)=>s + Number(t.amount||0), 0);
+        const expense = txns.filter(t => t.type === "expense").reduce((s,t)=>s + Number(t.amount||0), 0);
+        const remaining = income - expense;
+        const remainingPct = income > 0 ? Math.max(0, Math.round((remaining / income) * 100)) : 0;
+        const spentPct = income > 0 ? Math.min(100, Math.max(0, Math.round((expense / income) * 100))) : 0;
 
-      const income = txns.filter(t => t.type === "income").reduce((s,t)=>s + Number(t.amount||0), 0);
-      const expense = txns.filter(t => t.type === "expense").reduce((s,t)=>s + Number(t.amount||0), 0);
-      const remaining = income - expense;
-      const remainingPct = income > 0 ? Math.max(0, Math.round((remaining / income) * 100)) : 0;
-      const spentPct = income > 0 ? Math.min(100, Math.max(0, Math.round((expense / income) * 100))) : 0;
+        const incomeCats = cats.filter(c => c.type === "income");
+        const expenseCats = cats.filter(c => c.type === "expense");
 
-      const incomeCats = cats.filter(c => c.type === "income");
-      const expenseCats = cats.filter(c => c.type === "expense");
+        ctx.root.innerHTML = "";
+        ctx.root.appendChild(ui.el("div", { class: "screen-title" }, "Finance"));
 
-      overviewHost.innerHTML = "";
-      overviewHost.appendChild(
-        el("div", { class: "col" }, [
-          el("div", { class: "meta" }, `Month: ${month}`),
-          el("div", { class: "kpi-row" }, [
-            el("div", { class: "kpi-label" }, "Remaining"),
-            el("div", { class: "kpi-value" }, `${money(remaining)}`)
+        // Overview
+        ctx.root.appendChild(ui.el("section", { class: "widget" }, [
+          ui.el("div", { class: "widget-head" }, [
+            ui.el("div", { class: "widget-title" }, "Monthly Overview"),
+            ui.el("div", { class: "widget-meta" }, month)
           ]),
-          el("div", { class: "progress-shell" }, [
-            el("div", { class: "progress-fill", style: `width:${spentPct}%` })
-          ]),
-          el("div", { class: "meta-row" }, [
-            el("span", { class: "meta" }, `Income: ${money(income)}`),
-            el("span", { class: "meta" }, `Expenses: ${money(expense)}`)
-          ]),
-          el("div", { class: "meta" }, `${remainingPct}% remaining`)
-        ])
-      );
+          ui.el("div", { class: "widget-body" }, [
+            ui.el("div", { class: "col" }, [
+              ui.el("div", { class: "kpi-row" }, [
+                ui.el("div", { class: "kpi-label" }, "Remaining"),
+                ui.el("div", { class: "kpi-value" }, ui.money(remaining))
+              ]),
+              ui.el("div", { class: "progress-shell" }, [
+                ui.el("div", { class: "progress-fill", style: "width:" + spentPct + "%" })
+              ]),
+              ui.el("div", { class: "row" }, [
+                ui.el("div", { class: "meta" }, "Income: " + ui.money(income)),
+                ui.el("div", { class: "meta" }, "Expenses: " + ui.money(expense))
+              ]),
+              ui.el("div", { class: "meta" }, remainingPct + "% remaining")
+            ])
+          ])
+        ]));
 
-      txHost.innerHTML = "";
-      txHost.appendChild(
-        el("div", { class: "col" }, [
-          el("div", { class: "row" }, [
-            el("select", { class: "select", id: "txType" }, [
-              el("option", { value: "expense" }, "Expense"),
-              el("option", { value: "income" }, "Income")
-            ]),
-            el("input", { class: "input", id: "txAmount", placeholder: "Amount (e.g. 49.90)", inputmode: "decimal" })
+        // Transactions
+        const txWidgetBody = ui.el("div", { class: "widget-body" }, []);
+        const txWidget = ui.el("section", { class: "widget", id: "financeAddTransaction" }, [
+          ui.el("div", { class: "widget-head" }, [
+            ui.el("div", { class: "widget-title" }, "Transactions"),
+            ui.el("div", { class: "widget-meta" }, "Add + list")
           ]),
-          el("select", { class: "select", id: "txCat" }, []),
-          el("input", { class: "input", id: "txNote", placeholder: "Note (optional)" }),
-          el("button", {
+          txWidgetBody
+        ]);
+
+        const txType = ui.el("select", { class: "select", id: "txType" }, [
+          ui.el("option", { value: "expense" }, "Expense"),
+          ui.el("option", { value: "income" }, "Income")
+        ]);
+        const txAmount = ui.el("input", { class: "input", id: "txAmount", placeholder: "Amount (e.g. 49.90)", inputmode: "decimal" });
+        const txCat = ui.el("select", { class: "select", id: "txCat" }, []);
+        const txNote = ui.el("input", { class: "input", id: "txNote", placeholder: "Note (optional)" });
+
+        function refreshCatSelect() {
+          const type = txType.value;
+          txCat.innerHTML = "";
+          const list = type === "income" ? incomeCats : expenseCats;
+          for (let i = 0; i < list.length; i++) {
+            const c = list[i];
+            txCat.appendChild(ui.el("option", { value: String(c.id) }, c.name));
+          }
+        }
+        txType.onchange = refreshCatSelect;
+
+        txWidgetBody.appendChild(ui.el("div", { class: "col" }, [
+          ui.el("div", { class: "meta" }, "Date: " + date),
+          ui.el("div", { class: "row" }, [txType, txAmount]),
+          txCat,
+          txNote,
+          ui.el("button", {
             class: "btn primary",
-            onclick: async () => {
-              const type = document.getElementById("txType").value;
-              const amount = Number((document.getElementById("txAmount").value || "").replace(",", "."));
-              const catId = Number(document.getElementById("txCat").value);
-              const note = (document.getElementById("txNote").value || "").trim();
-              if (!amount || !catId) return;
+            onclick: async (e) => {
+              e.preventDefault();
+              const type = txType.value;
+              const amount = Number((txAmount.value || "").replace(",", "."));
+              const categoryId = Number(txCat.value);
+              const note = (txNote.value || "").trim();
+              if (!amount || !categoryId) { ui.toast("Missing amount/category"); return; }
 
-              await db.addTransaction({ date, month, type, categoryId: catId, amount, note, source: "manual" });
+              await S().addTransaction({ date: date, month: month, type: type, categoryId: categoryId, amount: amount, note: note, source: "manual" })
+                .catch((err) => { console.error(err); ui.toast("Save failed"); });
 
-              document.getElementById("txAmount").value = "";
-              document.getElementById("txNote").value = "";
-              await render();
+              txAmount.value = "";
+              txNote.value = "";
+              ui.toast("Transaction saved");
+              await render(openSection);
             }
           }, "Add transaction"),
-          el("div", { class: "divider" }),
-          el("div", { class: "badge" }, "This month"),
+          ui.el("div", { class: "divider" }),
+          ui.el("div", { class: "badge" }, "This month"),
           txns.length === 0
-            ? el("div", { class: "meta" }, "No transactions yet.")
-            : el("div", { class: "list" }, txns.map((t) => {
+            ? ui.el("div", { class: "meta" }, "No transactions yet.")
+            : ui.el("div", { class: "list" }, txns.map((t) => {
                 const cat = cats.find(c => c.id === t.categoryId);
-                return el("div", { class: "card row" }, [
-                  el("div", { style: "flex:1" }, [
-                    el("div", {}, `${t.type === "expense" ? "−" : "+"}${money(t.amount)} · ${cat ? cat.name : "Category"}`),
-                    el("div", { class: "meta small" }, `${t.date} · ${t.source || "manual"}${t.note ? " · " + t.note : ""}`)
+                return ui.el("div", { class: "card row" }, [
+                  ui.el("div", { style: "flex:1" }, [
+                    ui.el("div", {}, (t.type === "expense" ? "−" : "+") + ui.money(t.amount) + " · " + (cat ? cat.name : "Category")),
+                    ui.el("div", { class: "meta small" }, t.date + " · " + (t.source || "manual") + (t.note ? " · " + t.note : ""))
                   ]),
-                  el("div", { class: "badge" }, t.type)
+                  ui.el("div", { class: "badge" }, t.type)
                 ]);
               }))
-        ])
-      );
+        ]));
 
-      function refreshCatSelect() {
-        const type = document.getElementById("txType").value;
-        const sel = document.getElementById("txCat");
-        sel.innerHTML = "";
-        const list = type === "income" ? incomeCats : expenseCats;
-        list.forEach((c) => sel.appendChild(el("option", { value: String(c.id) }, c.name)));
-      }
-      document.getElementById("txType").onchange = refreshCatSelect;
-      refreshCatSelect();
+        ctx.root.appendChild(txWidget);
+        refreshCatSelect();
 
-      gkHost.innerHTML = "";
-      const items = await db.listGatekeeper();
+        // Gatekeeper
+        const gkBody = ui.el("div", { class: "widget-body" }, []);
+        const gkWidget = ui.el("section", { class: "widget", id: "financeAddGatekeeper" }, [
+          ui.el("div", { class: "widget-head" }, [
+            ui.el("div", { class: "widget-title" }, "Gatekeeper"),
+            ui.el("div", { class: "widget-meta" }, "72h brake")
+          ]),
+          gkBody
+        ]);
 
-      gkHost.appendChild(
-        el("div", { class: "col" }, [
-          el("div", { class: "meta" }, "Add item (image + text + price). Locked 72h before purchase."),
-          el("input", { class: "input", id: "gkName", placeholder: "Item name" }),
-          el("input", { class: "input", id: "gkPrice", placeholder: "Price (e.g. 199.00)", inputmode: "decimal" }),
-          el("select", { class: "select", id: "gkCat" }, expenseCats.map((c)=>el("option", { value: String(c.id) }, c.name))),
-          el("input", { type: "file", accept: "image/*", class: "input", id: "gkImg" }),
-          el("button", {
+        const gkName = ui.el("input", { class: "input", id: "gkName", placeholder: "Item name" });
+        const gkPrice = ui.el("input", { class: "input", id: "gkPrice", placeholder: "Price (e.g. 199.00)", inputmode: "decimal" });
+        const gkCat = ui.el("select", { class: "select", id: "gkCat" }, expenseCats.map((c) => ui.el("option", { value: String(c.id) }, c.name)));
+        const gkImg = ui.el("input", { class: "input", id: "gkImg", type: "file", accept: "image/*" });
+
+        gkBody.appendChild(ui.el("div", { class: "col" }, [
+          ui.el("div", { class: "meta" }, "Add item: image + name + price. Locked 72h before purchase."),
+          gkName,
+          gkPrice,
+          gkCat,
+          gkImg,
+          ui.el("button", {
             class: "btn primary",
-            onclick: async () => {
-              const name = (document.getElementById("gkName").value || "").trim();
-              const price = Number((document.getElementById("gkPrice").value || "").replace(",", "."));
-              const categoryId = Number(document.getElementById("gkCat").value);
-              const file = document.getElementById("gkImg").files?.[0] || null;
-              if (!name || !price || !categoryId) return;
+            onclick: async (e) => {
+              e.preventDefault();
+              const name = (gkName.value || "").trim();
+              const price = Number((gkPrice.value || "").replace(",", "."));
+              const categoryId = Number(gkCat.value);
+              const file = gkImg.files && gkImg.files[0] ? gkImg.files[0] : null;
+              if (!name || !price || !categoryId) { ui.toast("Missing fields"); return; }
 
-              const imageDataUrl = await fileToDataUrl(file);
+              let imageDataUrl = null;
+              try { imageDataUrl = await ui.fileToDataUrl(file); } catch (_) {}
+
               const createdAt = Date.now();
               const unlockAt = createdAt + 72 * 60 * 60 * 1000;
 
-              await db.addGatekeeperItem({
-                name, price, categoryId,
+              await S().addGatekeeperItem({
+                name: name,
+                price: price,
+                categoryId: categoryId,
                 imageDataUrl: imageDataUrl || null,
-                createdAt, unlockAt,
+                createdAt: createdAt,
+                unlockAt: unlockAt,
                 status: "locked",
                 purchasedAt: null
-              });
+              }).catch((err) => { console.error(err); ui.toast("Save failed"); });
 
-              document.getElementById("gkName").value = "";
-              document.getElementById("gkPrice").value = "";
-              document.getElementById("gkImg").value = "";
-              await render();
+              gkName.value = "";
+              gkPrice.value = "";
+              gkImg.value = "";
+              ui.toast("Gatekeeper saved");
+              await render(openSection);
             }
           }, "Add Gatekeeper item"),
-          el("div", { class: "divider" }),
-          items.length === 0 ? el("div", { class: "meta" }, "No items yet.") :
-            el("div", { class: "list" }, items.map((it) => {
-              const eligible = Date.now() >= it.unlockAt;
-              const lockedHours = hoursUntil(it.unlockAt);
-              const pctOfRemaining = remaining !== 0 ? Math.round((it.price / Math.max(1, remaining)) * 100) : 0;
+          ui.el("div", { class: "divider" }),
+          gk.length === 0 ? ui.el("div", { class: "meta" }, "No items yet.") :
+            ui.el("div", { class: "list" }, gk.map((it) => {
+              const eligible = Date.now() >= (it.unlockAt || 0);
+              const lockedHours = ui.hoursUntil(it.unlockAt || 0);
+              const pctOfRemaining = remaining > 0 ? Math.round((Number(it.price || 0) / Math.max(1, remaining)) * 100) : 0;
+              const warn = remaining > 0 && Number(it.price || 0) > remaining;
 
-              const left = el("div", { style: "flex:1" }, [
-                el("div", {}, `${it.name} · ${money(it.price)}`),
-                el("div", { class: "meta small" }, eligible ? `Eligible · ~${pctOfRemaining}% of remaining` : `Locked · unlocks in ${lockedHours}h`)
+              const img = it.imageDataUrl ? ui.el("img", { class: "thumb", src: it.imageDataUrl }) : ui.el("div", { class: "thumb" });
+
+              const left = ui.el("div", { style: "flex:1" }, [
+                ui.el("div", {}, it.name + " · " + ui.money(it.price)),
+                ui.el("div", { class: "meta small" },
+                  (it.status === "purchased")
+                    ? "Purchased"
+                    : (eligible
+                        ? ("Eligible · ~" + pctOfRemaining + "% of remaining" + (warn ? " · WARNING: > remaining" : ""))
+                        : ("Locked · unlocks in " + lockedHours + "h"))
+                )
               ]);
 
-              const img = it.imageDataUrl ? el("img", { class: "thumb", src: it.imageDataUrl }) : el("div", { class: "thumb" });
-
-              const buyBtn = el("button", {
-                class: eligible ? "btn primary small" : "btn small",
-                disabled: eligible ? null : "disabled",
-                onclick: async () => {
-                  if (!confirmBox("Sicher, dass du das gekauft hast?")) return;
+              const btn = ui.el("button", {
+                class: (eligible && it.status !== "purchased") ? "btn primary small" : "btn small",
+                disabled: (eligible && it.status !== "purchased") ? null : "disabled",
+                onclick: async (e) => {
+                  e.preventDefault();
+                  if (it.status === "purchased") return;
+                  if (!window.confirm("Sicher? Das erzeugt eine Expense-Transaktion.")) return;
 
                   it.status = "purchased";
                   it.purchasedAt = Date.now();
-                  await db.updateGatekeeperItem(it);
-
-                  await db.addTransaction({
-                    date, month,
+                  await S().updateGatekeeperItem(it).catch(() => {});
+                  await S().addTransaction({
+                    date: date,
+                    month: month,
                     type: "expense",
                     categoryId: it.categoryId,
                     amount: it.price,
-                    note: `Gatekeeper: ${it.name}`,
+                    note: "Gatekeeper: " + it.name,
                     source: "gatekeeper"
-                  });
-
-                  await render();
+                  }).catch(() => {});
+                  ui.toast("Purchased recorded");
+                  await render(openSection);
                 }
-              }, it.status === "purchased" ? "Purchased" : "Bought");
+              }, (it.status === "purchased") ? "Purchased" : "Bought");
 
-              return el("div", { class: "card row" }, [img, left, buyBtn]);
+              return ui.el("div", { class: "card row" }, [img, left, btn]);
             }))
-        ])
-      );
-    }
+        ]));
 
-    await render();
-  };
+        ctx.root.appendChild(gkWidget);
+
+        // Deep-link support from Dashboard quick actions
+        if (openSection === "addTransaction") {
+          setTimeout(() => {
+            try {
+              const n = document.getElementById("financeAddTransaction");
+              if (n && n.scrollIntoView) n.scrollIntoView({ behavior: "smooth", block: "start" });
+            } catch (_) {}
+          }, 80);
+        }
+        if (openSection === "addGatekeeper") {
+          setTimeout(() => {
+            try {
+              const n = document.getElementById("financeAddGatekeeper");
+              if (n && n.scrollIntoView) n.scrollIntoView({ behavior: "smooth", block: "start" });
+            } catch (_) {}
+          }, 80);
+        }
+      }
+
+      const open = (ctx.params && ctx.params.open) ? ctx.params.open : null;
+      await render(open);
+    };
+  }
+
+  R().register("finance", factory);
 })();
