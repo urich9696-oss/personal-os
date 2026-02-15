@@ -7,9 +7,9 @@
 <title>Personal OS</title>
 
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#0A1F16">
+<meta name="theme-color" content="#F6F5F2">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Personal OS">
 <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
 
@@ -23,22 +23,105 @@
     <p class="subtitle">The Architecture of Excellence.</p>
   </header>
 
-  <main id="screen-dashboard" class="screen active">
+  <!-- MINDSET -->
+  <main id="screen-mindset" class="screen active">
     <section class="widget full">
       <div class="widget-head">
-        <div class="widget-title">Today’s Path</div>
-        <div class="widget-meta">Command Panel</div>
+        <div class="widget-title">Journal</div>
+        <div class="widget-meta">6-Minute Style</div>
       </div>
       <div class="widget-body">
-        <div class="placeholder-line"></div>
-        <div class="placeholder-line short"></div>
+        <div class="meta">Morning + Evening. Vault is the archive.</div>
       </div>
     </section>
 
     <section class="widget full">
       <div class="widget-head">
-        <div class="widget-title">Daily Budget</div>
-        <div class="widget-meta">Today</div>
+        <div class="widget-title">Calendar</div>
+        <div class="widget-meta">Time Blocks</div>
+      </div>
+      <div class="widget-body">
+        <div class="meta">Blocks editor comes in Phase 2.</div>
+      </div>
+    </section>
+
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Vault</div>
+        <div class="widget-meta">Archive</div>
+      </div>
+      <div class="widget-body">
+        <div class="meta">Entries are stored per date.</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- TODAY'S PATH -->
+  <main id="screen-path" class="screen">
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Today’s Path</div>
+        <div class="widget-meta">To-Do + Calendar</div>
+      </div>
+      <div class="widget-body">
+        <div class="kpi-row">
+          <div class="kpi-label">Performance</div>
+          <div class="kpi-value">—%</div>
+        </div>
+        <div class="meta">To-Do’s are created in Journal.</div>
+      </div>
+    </section>
+
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Day Templates</div>
+        <div class="widget-meta">User-Defined</div>
+      </div>
+      <div class="widget-body">
+        <div class="meta">Weekday + Sport / Side Hustle / Weekend (Phase 2).</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MAINTENANCE -->
+  <main id="screen-maintenance" class="screen">
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Essentials</div>
+        <div class="widget-meta">Reusable Products</div>
+      </div>
+      <div class="widget-body">
+        <div class="meta">Create your own categories (Phase 2).</div>
+      </div>
+    </section>
+
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Self Care</div>
+        <div class="widget-meta">Habits</div>
+      </div>
+      <div class="widget-body">
+        <div class="meta">Define habits + reminders (Phase 2).</div>
+      </div>
+    </section>
+
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Health</div>
+        <div class="widget-meta">Training / Nutrition</div>
+      </div>
+      <div class="widget-body">
+        <div class="meta">Plans + lists + supplements (Post-MVP).</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- FINANCE -->
+  <main id="screen-finance" class="screen">
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Finance</div>
+        <div class="widget-meta">Monthly Overview</div>
       </div>
       <div class="widget-body">
         <div class="kpi-row">
@@ -46,110 +129,42 @@
           <div class="kpi-value">—</div>
         </div>
         <div class="progress-shell">
-          <div class="progress-fill" style="width: 0%"></div>
+          <div class="progress-fill" style="width:0%"></div>
         </div>
         <div class="meta-row">
-          <span class="meta">Spent: —</span>
-          <span class="meta">Budget: —</span>
+          <span class="meta">Income: —</span>
+          <span class="meta">Expenses: —</span>
         </div>
-      </div>
-    </section>
-
-    <div class="grid-2">
-      <section class="widget">
-        <div class="widget-head">
-          <div class="widget-title">Gatekeeper</div>
-          <div class="widget-meta">72h</div>
-        </div>
-        <div class="widget-body">
-          <div class="placeholder-card"></div>
-          <div class="meta">No items yet</div>
-        </div>
-      </section>
-
-      <section class="widget">
-        <div class="widget-head">
-          <div class="widget-title">Performance</div>
-          <div class="widget-meta">Today</div>
-        </div>
-        <div class="widget-body">
-          <div class="kpi-row">
-            <div class="kpi-label">Score</div>
-            <div class="kpi-value">—%</div>
-          </div>
-          <div class="meta">Big-3 tracked in Phase 2</div>
-        </div>
-      </section>
-    </div>
-  </main>
-
-  <main id="screen-journal" class="screen">
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Morning</div>
-        <div class="widget-meta">Intent</div>
-      </div>
-      <div class="widget-body">
-        <div class="placeholder-line"></div>
-        <div class="placeholder-line"></div>
-        <div class="placeholder-line short"></div>
       </div>
     </section>
 
     <section class="widget full">
       <div class="widget-head">
-        <div class="widget-title">Evening</div>
-        <div class="widget-meta">Reflection</div>
+        <div class="widget-title">Gatekeeper</div>
+        <div class="widget-meta">Consumption Brake</div>
       </div>
       <div class="widget-body">
-        <div class="placeholder-line"></div>
-        <div class="placeholder-line"></div>
-        <div class="placeholder-line short"></div>
-        <button class="btn" disabled>Close Day (Phase 2)</button>
-      </div>
-    </section>
-  </main>
-
-  <main id="screen-vault" class="screen">
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Vault</div>
-        <div class="widget-meta">Snapshots</div>
-      </div>
-      <div class="widget-body">
-        <div class="meta">Vault populates after “Close Day” in Phase 2.</div>
-      </div>
-    </section>
-  </main>
-
-  <main id="screen-wealth" class="screen">
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Wealth</div>
-        <div class="widget-meta">Settings</div>
-      </div>
-      <div class="widget-body">
-        <div class="meta">Budget engine settings will be here in Phase 2.</div>
+        <div class="meta">Items locked 72h, then purchase confirmation.</div>
       </div>
     </section>
   </main>
 
   <nav class="bottom-nav">
-    <button data-target="dashboard" class="nav-btn active" aria-label="Dashboard">
-      <span class="nav-icon">▦</span>
-      <span class="nav-text">Dashboard</span>
+    <button data-target="mindset" class="nav-btn active" aria-label="Mindset">
+      <span class="nav-icon">◻︎</span>
+      <span class="nav-text">Mindset</span>
     </button>
-    <button data-target="journal" class="nav-btn" aria-label="Journal">
-      <span class="nav-icon">✎</span>
-      <span class="nav-text">Journal</span>
+    <button data-target="path" class="nav-btn" aria-label="Today’s Path">
+      <span class="nav-icon">↦</span>
+      <span class="nav-text">Today’s Path</span>
     </button>
-    <button data-target="vault" class="nav-btn" aria-label="Vault">
-      <span class="nav-icon">⌁</span>
-      <span class="nav-text">Vault</span>
+    <button data-target="maintenance" class="nav-btn" aria-label="Maintenance">
+      <span class="nav-icon">⚙︎</span>
+      <span class="nav-text">Maintenance</span>
     </button>
-    <button data-target="wealth" class="nav-btn" aria-label="Wealth">
-      <span class="nav-icon">◷</span>
-      <span class="nav-text">Wealth</span>
+    <button data-target="finance" class="nav-btn" aria-label="Finance">
+      <span class="nav-icon">◎</span>
+      <span class="nav-text">Finance</span>
     </button>
   </nav>
 </div>
