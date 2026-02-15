@@ -1,171 +1,93 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="de">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#F6F5F2" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Personal OS" />
 
-<title>Personal OS</title>
+  <title>Personal OS — The Architecture of Excellence.</title>
 
-<link rel="manifest" href="manifest.webmanifest" />
-<meta name="theme-color" content="#F6F5F2" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="Personal OS" />
-<link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./assets/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
 
-<link rel="stylesheet" href="css/styles.css" />
+  <!-- Optional: Online-Font (offline fallback in CSS) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="./css/styles.css" />
 </head>
 
 <body>
-<div class="app">
-
-  <header class="header">
-    <div class="brand">
-      <div class="brand-title">Personal OS</div>
-      <div class="brand-subtitle">The Architecture of Excellence.</div>
-    </div>
-  </header>
-
-  <!-- MINDSET -->
-  <main id="screen-mindset" class="screen">
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Journal</div>
-        <div class="widget-meta">6-Minute Style</div>
+  <div id="app" class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-title">Personal OS</div>
+        <div class="brand-subtitle">The Architecture of Excellence.</div>
       </div>
-      <div class="widget-body" id="mindset-journal"></div>
-    </section>
 
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Calendar</div>
-        <div class="widget-meta">Blocks + Templates</div>
+      <div class="header-right">
+        <div id="netBadge" class="net-badge" title="Network status">—</div>
       </div>
-      <div class="widget-body" id="mindset-calendar"></div>
-    </section>
+    </header>
 
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Vault</div>
-        <div class="widget-meta">Archive</div>
-      </div>
-      <div class="widget-body" id="mindset-vault"></div>
-    </section>
-  </main>
+    <main id="screenRoot" class="screen-root" aria-live="polite"></main>
 
-  <!-- TODAY'S PATH -->
-  <main id="screen-path" class="screen active">
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Today’s Path</div>
-        <div class="widget-meta">To-Do + Performance</div>
-      </div>
-      <div class="widget-body" id="path-todos"></div>
-    </section>
+    <!-- Bottom Nav visible even on Dashboard -->
+    <nav id="bottomNav" class="bottom-nav" aria-label="Primary">
+      <button type="button" class="nav-btn" data-screen="mindset" aria-label="Mindset">
+        <span class="nav-icon">◻︎</span>
+        <span class="nav-text">Mindset</span>
+      </button>
 
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Calendar</div>
-        <div class="widget-meta">Quick Edit</div>
-      </div>
-      <div class="widget-body" id="path-calendar"></div>
-    </section>
+      <button type="button" class="nav-btn" data-screen="path" aria-label="Today’s Path">
+        <span class="nav-icon">↦</span>
+        <span class="nav-text">Today’s Path</span>
+      </button>
 
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Day Templates</div>
-        <div class="widget-meta">Apply / Manage</div>
-      </div>
-      <div class="widget-body" id="path-templates"></div>
-    </section>
-  </main>
+      <button type="button" class="nav-btn" data-screen="maintenance" aria-label="Maintenance">
+        <span class="nav-icon">⚙︎</span>
+        <span class="nav-text">Maintenance</span>
+      </button>
 
-  <!-- MAINTENANCE -->
-  <main id="screen-maintenance" class="screen">
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Essentials</div>
-        <div class="widget-meta">Products</div>
-      </div>
-      <div class="widget-body" id="maintenance-essentials"></div>
-    </section>
+      <button type="button" class="nav-btn" data-screen="finance" aria-label="Finance">
+        <span class="nav-icon">◎</span>
+        <span class="nav-text">Finance</span>
+      </button>
+    </nav>
 
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Self Care</div>
-        <div class="widget-meta">Habits</div>
-      </div>
-      <div class="widget-body" id="maintenance-selfcare"></div>
-    </section>
+    <div class="safe-bottom"></div>
+  </div>
 
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Health</div>
-        <div class="widget-meta">Post-MVP</div>
-      </div>
-      <div class="widget-body">
-        <div class="meta">Training / Nutrition / Shopping lists / Supplements reminders — after MVP core is stable.</div>
-      </div>
-    </section>
-  </main>
+  <div id="toastRoot" class="toast-root" aria-live="polite" aria-relevant="additions"></div>
+  <div id="modalRoot" class="modal-root" aria-hidden="true"></div>
 
-  <!-- FINANCE -->
-  <main id="screen-finance" class="screen">
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Finance</div>
-        <div class="widget-meta">Monthly</div>
-      </div>
-      <div class="widget-body" id="finance-overview"></div>
-    </section>
+  <!-- Core (NO modules) -->
+  <script src="./js/core/state.js"></script>
+  <script src="./js/core/ui.js"></script>
+  <script src="./js/core/registry.js"></script>
+  <script src="./js/core/router.js"></script>
+  <script src="./js/core/boot.js"></script>
 
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Transactions</div>
-        <div class="widget-meta">Income / Expenses</div>
-      </div>
-      <div class="widget-body" id="finance-transactions"></div>
-    </section>
+  <!-- Screens (register only; lazy mount later) -->
+  <script src="./js/screens/dashboard.js"></script>
+  <script src="./js/screens/mindset.js"></script>
+  <script src="./js/screens/path.js"></script>
+  <script src="./js/screens/maintenance.js"></script>
+  <script src="./js/screens/finance.js"></script>
 
-    <section class="widget full">
-      <div class="widget-head">
-        <div class="widget-title">Gatekeeper</div>
-        <div class="widget-meta">72h Brake</div>
-      </div>
-      <div class="widget-body" id="finance-gatekeeper"></div>
-    </section>
-  </main>
-
-  <nav class="bottom-nav">
-    <button data-target="mindset" class="nav-btn" aria-label="Mindset">
-      <span class="nav-icon">◻︎</span>
-      <span class="nav-text">Mindset</span>
-    </button>
-    <button data-target="path" class="nav-btn active" aria-label="Today’s Path">
-      <span class="nav-icon">↦</span>
-      <span class="nav-text">Today’s Path</span>
-    </button>
-    <button data-target="maintenance" class="nav-btn" aria-label="Maintenance">
-      <span class="nav-icon">⚙︎</span>
-      <span class="nav-text">Maintenance</span>
-    </button>
-    <button data-target="finance" class="nav-btn" aria-label="Finance">
-      <span class="nav-icon">◎</span>
-      <span class="nav-text">Finance</span>
-    </button>
-  </nav>
-
-</div>
-
-<!-- IMPORTANT: non-module scripts for iOS PWA reliability -->
-<script src="js/db.js"></script>
-<script src="js/ui.js"></script>
-
-<script src="js/screens/mindset.js"></script>
-<script src="js/screens/path.js"></script>
-<script src="js/screens/maintenance.js"></script>
-<script src="js/screens/finance.js"></script>
-
-<script src="js/app.js"></script>
+  <script>
+    (function () {
+      if (!window.POS || !window.POS.boot) {
+        console.error("POS boot missing");
+        return;
+      }
+      window.POS.boot.start();
+    })();
+  </script>
 </body>
 </html>
