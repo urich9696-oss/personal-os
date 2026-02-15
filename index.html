@@ -1,48 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
 <title>Personal OS</title>
 
-<link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#F6F5F2">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Personal OS">
-<link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#F6F5F2" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Personal OS" />
+<link rel="apple-touch-icon" href="assets/icons/icon-192.png" />
 
-<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/styles.css" />
 </head>
-<body>
 
+<body>
 <div class="app">
+
   <header class="header">
-    <h1>Personal OS</h1>
-    <p class="subtitle">The Architecture of Excellence.</p>
+    <div class="brand">
+      <div class="brand-title">Personal OS</div>
+      <div class="brand-subtitle">The Architecture of Excellence.</div>
+    </div>
   </header>
 
   <!-- MINDSET -->
-  <main id="screen-mindset" class="screen active">
+  <main id="screen-mindset" class="screen">
     <section class="widget full">
       <div class="widget-head">
         <div class="widget-title">Journal</div>
         <div class="widget-meta">6-Minute Style</div>
       </div>
-      <div class="widget-body">
-        <div class="meta">Morning + Evening. Vault is the archive.</div>
-      </div>
+      <div class="widget-body" id="mindset-journal"></div>
     </section>
 
     <section class="widget full">
       <div class="widget-head">
         <div class="widget-title">Calendar</div>
-        <div class="widget-meta">Time Blocks</div>
+        <div class="widget-meta">Blocks + Templates</div>
       </div>
-      <div class="widget-body">
-        <div class="meta">Blocks editor comes in Phase 2.</div>
-      </div>
+      <div class="widget-body" id="mindset-calendar"></div>
     </section>
 
     <section class="widget full">
@@ -50,36 +49,34 @@
         <div class="widget-title">Vault</div>
         <div class="widget-meta">Archive</div>
       </div>
-      <div class="widget-body">
-        <div class="meta">Entries are stored per date.</div>
-      </div>
+      <div class="widget-body" id="mindset-vault"></div>
     </section>
   </main>
 
   <!-- TODAY'S PATH -->
-  <main id="screen-path" class="screen">
+  <main id="screen-path" class="screen active">
     <section class="widget full">
       <div class="widget-head">
         <div class="widget-title">Today’s Path</div>
-        <div class="widget-meta">To-Do + Calendar</div>
+        <div class="widget-meta">To-Do + Performance</div>
       </div>
-      <div class="widget-body">
-        <div class="kpi-row">
-          <div class="kpi-label">Performance</div>
-          <div class="kpi-value">—%</div>
-        </div>
-        <div class="meta">To-Do’s are created in Journal.</div>
+      <div class="widget-body" id="path-todos"></div>
+    </section>
+
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Calendar</div>
+        <div class="widget-meta">Quick Edit</div>
       </div>
+      <div class="widget-body" id="path-calendar"></div>
     </section>
 
     <section class="widget full">
       <div class="widget-head">
         <div class="widget-title">Day Templates</div>
-        <div class="widget-meta">User-Defined</div>
+        <div class="widget-meta">Apply / Manage</div>
       </div>
-      <div class="widget-body">
-        <div class="meta">Weekday + Sport / Side Hustle / Weekend (Phase 2).</div>
-      </div>
+      <div class="widget-body" id="path-templates"></div>
     </section>
   </main>
 
@@ -88,11 +85,9 @@
     <section class="widget full">
       <div class="widget-head">
         <div class="widget-title">Essentials</div>
-        <div class="widget-meta">Reusable Products</div>
+        <div class="widget-meta">Products</div>
       </div>
-      <div class="widget-body">
-        <div class="meta">Create your own categories (Phase 2).</div>
-      </div>
+      <div class="widget-body" id="maintenance-essentials"></div>
     </section>
 
     <section class="widget full">
@@ -100,18 +95,16 @@
         <div class="widget-title">Self Care</div>
         <div class="widget-meta">Habits</div>
       </div>
-      <div class="widget-body">
-        <div class="meta">Define habits + reminders (Phase 2).</div>
-      </div>
+      <div class="widget-body" id="maintenance-selfcare"></div>
     </section>
 
     <section class="widget full">
       <div class="widget-head">
         <div class="widget-title">Health</div>
-        <div class="widget-meta">Training / Nutrition</div>
+        <div class="widget-meta">Post-MVP</div>
       </div>
       <div class="widget-body">
-        <div class="meta">Plans + lists + supplements (Post-MVP).</div>
+        <div class="meta">Training / Nutrition / Shopping lists / Supplements reminders — after MVP core is stable.</div>
       </div>
     </section>
   </main>
@@ -121,40 +114,34 @@
     <section class="widget full">
       <div class="widget-head">
         <div class="widget-title">Finance</div>
-        <div class="widget-meta">Monthly Overview</div>
+        <div class="widget-meta">Monthly</div>
       </div>
-      <div class="widget-body">
-        <div class="kpi-row">
-          <div class="kpi-label">Remaining</div>
-          <div class="kpi-value">—</div>
-        </div>
-        <div class="progress-shell">
-          <div class="progress-fill" style="width:0%"></div>
-        </div>
-        <div class="meta-row">
-          <span class="meta">Income: —</span>
-          <span class="meta">Expenses: —</span>
-        </div>
+      <div class="widget-body" id="finance-overview"></div>
+    </section>
+
+    <section class="widget full">
+      <div class="widget-head">
+        <div class="widget-title">Transactions</div>
+        <div class="widget-meta">Income / Expenses</div>
       </div>
+      <div class="widget-body" id="finance-transactions"></div>
     </section>
 
     <section class="widget full">
       <div class="widget-head">
         <div class="widget-title">Gatekeeper</div>
-        <div class="widget-meta">Consumption Brake</div>
+        <div class="widget-meta">72h Brake</div>
       </div>
-      <div class="widget-body">
-        <div class="meta">Items locked 72h, then purchase confirmation.</div>
-      </div>
+      <div class="widget-body" id="finance-gatekeeper"></div>
     </section>
   </main>
 
   <nav class="bottom-nav">
-    <button data-target="mindset" class="nav-btn active" aria-label="Mindset">
+    <button data-target="mindset" class="nav-btn" aria-label="Mindset">
       <span class="nav-icon">◻︎</span>
       <span class="nav-text">Mindset</span>
     </button>
-    <button data-target="path" class="nav-btn" aria-label="Today’s Path">
+    <button data-target="path" class="nav-btn active" aria-label="Today’s Path">
       <span class="nav-icon">↦</span>
       <span class="nav-text">Today’s Path</span>
     </button>
@@ -167,8 +154,9 @@
       <span class="nav-text">Finance</span>
     </button>
   </nav>
+
 </div>
 
-<script src="js/app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
