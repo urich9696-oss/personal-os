@@ -29,22 +29,25 @@
 
       if (typeof fn === "function") await fn();
       mounted[target] = true;
+
     } catch (e) {
-      // IMPORTANT: never kill navigation
       console.error("Mount error:", e);
     }
   }
 
   buttons.forEach((btn) => {
-    btn.addEventListener("click", async () => {
+    const handler = async (e) => {
+      e.preventDefault();
       const target = btn.dataset.target;
       setActive(target);
       await mountIfNeeded(target);
-    });
+    };
+
+    btn.addEventListener("click", handler, { passive:false });
+    btn.addEventListener("touchend", handler, { passive:false });
   });
 
   async function boot() {
-    // default start: path
     setActive("path");
     await mountIfNeeded("path");
   }
