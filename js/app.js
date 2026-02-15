@@ -1,63 +1,59 @@
-import { db } from "./db.js";
-import { mountMindset } from "./screens/mindset.js";
-import { mountPath } from "./screens/path.js";
-import { mountMaintenance } from "./screens/maintenance.js";
-import { mountFinance } from "./screens/finance.js";
+(function () {
+  const buttons = document.querySelectorAll(".nav-btn");
+  const screens = document.querySelectorAll(".screen");
 
-const buttons = document.querySelectorAll(".nav-btn");
-const screens = document.querySelectorAll(".screen");
+  const mounted = { mindset:false, path:false, maintenance:false, finance:false };
 
-let mounted = {
-  mindset: false,
-  path: false,
-  maintenance: false,
-  finance: false
-};
+  function setActive(target) {
+    buttons.forEach((b) => b.classList.remove("active"));
+    screens.forEach((s) => s.classList.remove("active"));
 
-function setActive(target) {
-  buttons.forEach((b) => b.classList.remove("active"));
-  screens.forEach((s) => s.classList.remove("active"));
+    const btn = document.querySelector(`.nav-btn[data-target="${target}"]`);
+    const screen = document.getElementById("screen-" + target);
 
-  const btn = document.querySelector(`.nav-btn[data-target="${target}"]`);
-  const screen = document.getElementById("screen-" + target);
+    if (btn) btn.classList.add("active");
+    if (screen) screen.classList.add("active");
+  }
 
-  if (btn) btn.classList.add("active");
-  if (screen) screen.classList.add("active");
-}
+  async function mountIfNeeded(target) {
+    try {
+      if (mounted[target]) return;
 
-async function mountIfNeeded(target) {
-  if (mounted[target]) return;
-  if (target === "mindset") await mountMindset();
-  if (target === "path") await mountPath();
-  if (target === "maintenance") await mountMaintenance();
-  if (target === "finance") await mountFinance();
-  mounted[target] = true;
-}
+      const screensApi = (window.PersonalOS && window.PersonalOS.screens) ? window.PersonalOS.screens : {};
+      const fn =
+        target === "mindset" ? screensApi.mindset :
+        target === "path" ? screensApi.path :
+        target === "maintenance" ? screensApi.maintenance :
+        target === "finance" ? screensApi.finance :
+        null;
 
-buttons.forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    const target = btn.dataset.target;
-    setActive(target);
-    await mountIfNeeded(target);
+      if (typeof fn === "function") await fn();
+      mounted[target] = true;
+    } catch (e) {
+      // IMPORTANT: never kill navigation
+      console.error("Mount error:", e);
+    }
+  }
+
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const target = btn.dataset.target;
+      setActive(target);
+      await mountIfNeeded(target);
+    });
   });
-});
 
-async function boot() {
-  // ensure DB init + settings exist
-  const settings = await db.getSettings();
+  async function boot() {
+    // default start: path
+    setActive("path");
+    await mountIfNeeded("path");
+  }
 
-  // STARTSCREEN FIX: default to Today’s Path unless settings override
-  const startTab = settings?.ui?.startTab || "path";
+  boot();
 
-  setActive(startTab);
-  await mountIfNeeded(startTab);
-}
-
-boot();
-
-// Service Worker
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("service-worker.js");
-  });
-}
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("service-worker.js");
+    });
+  }
+})();
