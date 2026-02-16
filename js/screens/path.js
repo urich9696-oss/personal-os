@@ -1,83 +1,110 @@
 // js/screens/path.js
-// PERSONAL OS — Execution (Today’s Path)
+// PERSONAL OS — Today’s Path (Execution Mode)
+// Requirements implemented:
+// - Hard Status Enforcement: only interactive in "execution"
+// - ToDos anzeigen (aus Journal), abhaken, Performance live
+// - Kalenderblöcke (heute) anzeigen
+// - Quick Add Block (via State API)
+// - Keine Templates im Daily Flow
 
 ScreenRegistry.register("path", {
-
   async mount(container, ctx) {
-
     try {
-
       container.innerHTML = "";
 
-      const today = new Date().toISOString().split("T")[0];
+      const today = State.getTodayKey();
       const status = await State.getDayStatus();
 
       const root = document.createElement("div");
       root.className = "path";
 
-      if (status !== "execution") {
-        const locked = document.createElement("div");
-        locked.innerHTML = "<h2>Execution Locked</h2><div>Complete Morning first.</div>";
-        root.appendChild(locked);
-        container.appendChild(root);
-        return;
-      }
-
-      // ===== LOAD JOURNAL =====
-      const journal = await new Promise(resolve => {
-        const req = indexedDB.open("personalOS");
-        req.onsuccess = function (e) {
-          const db = e.target.result;
-          const tx = db.transaction("journalEntries", "readonly");
-          const r = tx.objectStore("journalEntries").get(today);
-          r.onsuccess = () => resolve(r.result || null);
-          r.onerror = () => resolve(null);
-        };
-      });
-
-      if (!journal || !journal.morning?.todos) {
-        root.innerHTML = "<h2>No Plan Found</h2>";
-        container.appendChild(root);
-        return;
-      }
-
-      const todos = journal.morning.todos;
-
       const title = document.createElement("h2");
-      title.innerText = "Execution";
+      title.textContent = "Today’s Path";
       root.appendChild(title);
 
-      const perfDiv = document.createElement("div");
-      root.appendChild(perfDiv);
+      // Hard guardrail
+      if (status !== "execution") {
+        const msg = document.createElement("div");
+        msg.className = "error";
+        msg.innerHTML =
+          "<div style='font-weight:800; margin-bottom:6px;'>Execution ist gesperrt</div>" +
+          "<div style='font-size:14px; opacity:0.85;'>Du bist aktuell in <strong>" + escapeHtml(String(status)) + "</strong>. " +
+          "Execution ist nur im Status <strong>execution</strong> möglich.</div>";
+        root.appendChild(msg);
 
-      function renderPerformance() {
-        const total = todos.length;
-        const done = todos.filter(t => t.done).length;
-        const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-        perfDiv.innerHTML = `<div>Performance: ${pct}% (${done}/${total})</div>`;
+        const toMindset = document.createElement("button");
+        toMindset.type = "button";
+        toMindset.textContent = "Go to Mindset";
+        toMindset.onclick = () => Router.go("mindset");
+        root.appendChild(toMindset);
+
+        container.appendChild(root);
+        return;
       }
 
-      renderPerformance();
+      // ===== Load journal (source of ToDos) =====
+      let entry = await State.getJournal(today);
+      entry = State.ensureJournalShape(entry, today);
 
-      // ===== TODO LIST =====
-      const list = document.createElement("div");
+      const todos = (entry.morning && Array.isArray(entry.morning.todos)) ? entry.morning.todos : [];
 
-      async function saveJournal(updated) {
-        return new Promise(resolve => {
-          const req = indexedDB.open("personalOS");
-          req.onsuccess = function (e) {
-            const db = e.target.result;
-            const tx = db.transaction("journalEntries", "readwrite");
-            tx.objectStore("journalEntries").put(updated);
-            tx.oncomplete = () => resolve(true);
-          };
-        });
+      // ===== Performance =====
+      const perfCard = document.createElement("div");
+      perfCard.className = "dash-card";
+
+      function calcPerf() {
+        const total = todos.length;
+        const done = todos.filter((t) => t && t.done).length;
+        const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+        return { total, done, pct };
+      }
+
+      function renderPerf() {
+        const p = calcPerf();
+        perfCard.innerHTML = `
+          <div class="dash-meta">Performance</div>
+          <div class="dash-value">${p.pct}%</div>
+          <div style="font-size:13px; opacity:0.75; margin-top:6px;">Done: ${p.done}/${p.total}</div>
+        `;
+      }
+
+      renderPerf();
+      root.appendChild(perfCard);
+
+      // ===== ToDo List =====
+      const todoCard = document.createElement("div");
+      todoCard.className = "dash-card";
+      todoCard.innerHTML = `<div style="font-weight:800; margin-bottom:8px;">ToDos</div>`;
+      root.appendChild(todoCard);
+
+      const todoList = document.createElement("div");
+      todoCard.appendChild(todoList);
+
+      const todoHint = document.createElement("div");
+      todoHint.style.fontSize = "13px";
+      todoHint.style.opacity = "0.75";
+      todoHint.style.marginTop = "8px";
+      todoCard.appendChild(todoHint);
+
+      async function saveEntry() {
+        await State.putJournal(entry);
       }
 
       function renderTodos() {
-        list.innerHTML = "";
-        todos.forEach((t, index) => {
+        todoList.innerHTML = "";
 
+        if (!todos || todos.length === 0) {
+          const empty = document.createElement("div");
+          empty.style.fontSize = "13px";
+          empty.style.opacity = "0.75";
+          empty.textContent = "Keine ToDos gefunden. Lege ToDos im Morning Setup an.";
+          todoList.appendChild(empty);
+          todoHint.textContent = "";
+          return;
+        }
+
+        for (let i = 0; i < todos.length; i++) {
+          const t = todos[i] || {};
           const row = document.createElement("div");
           row.className = "todo-row";
 
@@ -85,123 +112,179 @@ ScreenRegistry.register("path", {
           cb.type = "checkbox";
           cb.checked = !!t.done;
 
+          const text = document.createElement("span");
+          text.textContent = String(t.text || "");
+
           cb.onchange = async function () {
             t.done = cb.checked;
-            await saveJournal(journal);
-            renderPerformance();
+            todos[i] = t;
+            entry.morning.todos = todos;
+
+            await saveEntry();
+            renderPerf();
+            renderTodos(); // keep UI consistent
           };
 
-          const span = document.createElement("span");
-          span.innerText = t.text;
+          // strike-through when done
+          if (t.done) {
+            text.style.textDecoration = "line-through";
+            text.style.opacity = "0.65";
+          }
 
           row.appendChild(cb);
-          row.appendChild(span);
+          row.appendChild(text);
+          todoList.appendChild(row);
+        }
 
-          list.appendChild(row);
-        });
+        const p = calcPerf();
+        todoHint.textContent = p.total === 0 ? "" : ("Nächster Schritt: Alles abhaken → dann Evening starten.");
       }
 
       renderTodos();
-      root.appendChild(list);
 
-      // ===== CALENDAR BLOCKS =====
-      const blockTitle = document.createElement("h3");
-      blockTitle.innerText = "Today’s Blocks";
-      root.appendChild(blockTitle);
+      // ===== Blocks =====
+      const blocksTitle = document.createElement("h3");
+      blocksTitle.textContent = "Today’s Blocks";
+      root.appendChild(blocksTitle);
 
-      const blockList = document.createElement("div");
-      root.appendChild(blockList);
-
-      function timeToMinutes(str) {
-        if (!str) return 0;
-        const parts = str.split(":");
-        return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-      }
-
-      async function loadBlocks() {
-        return new Promise(resolve => {
-          const req = indexedDB.open("personalOS");
-          req.onsuccess = function (e) {
-            const db = e.target.result;
-            const tx = db.transaction("calendarBlocks", "readonly");
-            const index = tx.objectStore("calendarBlocks").index("date");
-            const r = index.getAll(today);
-            r.onsuccess = () => resolve(r.result || []);
-            r.onerror = () => resolve([]);
-          };
-        });
-      }
+      const blocksWrap = document.createElement("div");
+      root.appendChild(blocksWrap);
 
       async function renderBlocks() {
-        const blocks = await loadBlocks();
-        blocks.sort((a, b) =>
-          timeToMinutes(a.start) - timeToMinutes(b.start)
-        );
+        blocksWrap.innerHTML = "";
+        const blocks = await State.listBlocks(today).catch(() => []);
 
-        blockList.innerHTML = "";
+        if (!blocks || blocks.length === 0) {
+          const empty = document.createElement("div");
+          empty.style.fontSize = "13px";
+          empty.style.opacity = "0.75";
+          empty.textContent = "Keine Blöcke. Füge unten einen Block hinzu.";
+          blocksWrap.appendChild(empty);
+          return;
+        }
 
-        blocks.forEach(b => {
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i] || {};
           const div = document.createElement("div");
-          div.innerText = `${b.start} - ${b.end} | ${b.title}`;
-          blockList.appendChild(div);
-        });
+          div.className = "todo-row";
+          div.style.justifyContent = "space-between";
+
+          const left = document.createElement("div");
+          left.style.display = "flex";
+          left.style.flexDirection = "column";
+
+          const top = document.createElement("div");
+          top.style.fontWeight = "800";
+          top.textContent = (b.start || "?") + "–" + (b.end || "?");
+
+          const bot = document.createElement("div");
+          bot.style.fontSize = "13px";
+          bot.style.opacity = "0.75";
+          bot.textContent = String(b.title || "");
+
+          left.appendChild(top);
+          left.appendChild(bot);
+
+          const del = document.createElement("button");
+          del.type = "button";
+          del.textContent = "Delete";
+          del.style.marginTop = "0";
+          del.onclick = async function () {
+            if (b.id == null) return;
+            const ok = await State.deleteBlock(b.id);
+            if (ok) await renderBlocks();
+          };
+
+          div.appendChild(left);
+          div.appendChild(del);
+
+          blocksWrap.appendChild(div);
+        }
       }
 
       await renderBlocks();
 
-      // ===== QUICK ADD BLOCK =====
+      // ===== Quick Add Block =====
+      const addCard = document.createElement("div");
+      addCard.className = "dash-card";
+      addCard.innerHTML = `<div style="font-weight:800; margin-bottom:8px;">Quick Add Block</div>`;
+
       const startInput = document.createElement("input");
       startInput.placeholder = "Start (HH:MM)";
+      startInput.inputMode = "numeric";
 
       const endInput = document.createElement("input");
       endInput.placeholder = "End (HH:MM)";
+      endInput.inputMode = "numeric";
 
       const titleInput = document.createElement("input");
       titleInput.placeholder = "Title";
 
-      const addBlockBtn = document.createElement("button");
-      addBlockBtn.innerText = "Add Block";
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.textContent = "Add Block";
 
-      addBlockBtn.onclick = async function () {
-        const start = startInput.value.trim();
-        const end = endInput.value.trim();
-        const title = titleInput.value.trim();
-        if (!start || !end || !title) return;
+      const addMsg = document.createElement("div");
+      addMsg.style.fontSize = "13px";
+      addMsg.style.opacity = "0.75";
+      addMsg.style.marginTop = "8px";
 
-        await new Promise(resolve => {
-          const req = indexedDB.open("personalOS");
-          req.onsuccess = function (e) {
-            const db = e.target.result;
-            const tx = db.transaction("calendarBlocks", "readwrite");
-            tx.objectStore("calendarBlocks").add({
-              date: today,
-              start,
-              end,
-              title
-            });
-            tx.oncomplete = () => resolve(true);
-          };
-        });
+      addBtn.onclick = async function () {
+        addMsg.textContent = "";
+        const s = String(startInput.value || "").trim();
+        const e = String(endInput.value || "").trim();
+        const t = String(titleInput.value || "").trim();
+
+        if (!s || !e || !t) {
+          addMsg.textContent = "Bitte Start/Ende/Titel ausfüllen.";
+          return;
+        }
+
+        const id = await State.addBlock({ date: today, start: s, end: e, title: t }).catch(() => null);
+        if (!id) {
+          addMsg.textContent = "Konnte Block nicht speichern.";
+          return;
+        }
 
         startInput.value = "";
         endInput.value = "";
         titleInput.value = "";
+        addMsg.textContent = "Block gespeichert.";
 
         await renderBlocks();
       };
 
-      root.appendChild(startInput);
-      root.appendChild(endInput);
-      root.appendChild(titleInput);
-      root.appendChild(addBlockBtn);
+      addCard.appendChild(startInput);
+      addCard.appendChild(endInput);
+      addCard.appendChild(titleInput);
+      addCard.appendChild(addBtn);
+      addCard.appendChild(addMsg);
+
+      root.appendChild(addCard);
+
+      // ===== Evening Transition =====
+      const eveningBtn = document.createElement("button");
+      eveningBtn.type = "button";
+      eveningBtn.textContent = "Start Evening Review";
+      eveningBtn.onclick = async function () {
+        const ok = await State.startEvening();
+        if (ok) Router.go("mindset");
+      };
+      root.appendChild(eveningBtn);
 
       container.appendChild(root);
-
     } catch (e) {
       console.error("Path mount error", e);
       container.innerHTML = "<div class='error'>Execution failed</div>";
     }
 
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
   }
-
 });
