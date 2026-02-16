@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  var APP_VERSION = "0.1.0";
+
   function setHeaderDate() {
     var el = document.getElementById("header-date");
     if (!el) return;
@@ -23,7 +25,6 @@
   }
 
   function ensureDefaultStart() {
-    // Dashboard ist KEIN Tab, sondern Startscreen.
     if (!location.hash || location.hash === "#") {
       location.hash = "#dashboard";
     }
@@ -42,20 +43,93 @@
     host.appendChild(card);
   }
 
+  function hasQueryFlag(name) {
+    try {
+      var url = new URL(location.href);
+      return url.searchParams.get(name) !== null;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function killSwitchNoSW() {
+    // ?nosw=1 => unregister all SW + delete caches + reload (no query)
+    try {
+      if (!("serviceWorker" in navigator)) return false;
+
+      var regs = await navigator.serviceWorker.getRegistrations();
+      for (var i = 0; i < regs.length; i++) {
+        try { await regs[i].unregister(); } catch (e) {}
+      }
+
+      if (window.caches && caches.keys) {
+        var keys = await caches.keys();
+        for (var k = 0; k < keys.length; k++) {
+          try { await caches.delete(keys[k]); } catch (e) {}
+        }
+      }
+
+      // remove nosw from URL
+      var u = new URL(location.href);
+      u.searchParams.delete("nosw");
+      history.replaceState({}, "", u.toString());
+      location.reload();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function registerSW() {
+    if (!("serviceWorker" in navigator)) return;
+
+    // Always register at repo root scope; SW uses scope to derive base path
+    try {
+      var reg = await navigator.serviceWorker.register("./service-worker.js?v=" + APP_VERSION, { scope: "./" });
+
+      // Light update hint
+      reg.addEventListener("updatefound", function () {
+        UI.toast("Update found…", 2000);
+      });
+
+      // If waiting, prompt user to reload (iOS-safe)
+      if (reg.waiting) {
+        UI.toast("Update ready. Reload app.", 2500);
+      }
+
+      // When controller changes -> reload once
+      var refreshed = false;
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        if (refreshed) return;
+        refreshed = true;
+        UI.toast("Updated. Reloading…", 1500);
+        setTimeout(function () { location.reload(); }, 500);
+      });
+    } catch (e) {
+      // SW errors should never break app boot
+    }
+  }
+
   async function boot() {
     setHeaderDate();
     wireBottomNav();
     ensureDefaultStart();
 
-    // DB + State init (no screen may touch IndexedDB directly)
     await State.init();
     await State.ensureTodayState();
 
     Router.init();
+
+    // SW register after app is stable
+    await registerSW();
   }
 
   (async function () {
     try {
+      if (hasQueryFlag("nosw")) {
+        await killSwitchNoSW();
+        return; // page will reload
+      }
       await boot();
     } catch (e) {
       var msg = (e && e.message) ? e.message : String(e);
