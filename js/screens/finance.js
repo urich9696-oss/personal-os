@@ -13,26 +13,24 @@
 
       var month = UI.formatDateISO(new Date()).slice(0, 7);
 
-      // Summary
       var summary = await computeMonthSummary(month);
 
       var summaryCard = UI.el("div", { className: "card tile" }, []);
       summaryCard.appendChild(UI.el("div", { className: "tile__label", text: "Month: " + month }, []));
       summaryCard.appendChild(UI.el("div", { className: "tile__value", text: "Remaining: CHF " + formatMoney(summary.remaining) }, []));
 
-      var prog = UI.el("div", { className: "progress-wrap" }, []);
       var pct = summary.income > 0 ? Math.max(0, Math.min(100, (summary.remaining / summary.income) * 100)) : 0;
-      prog.appendChild(UI.el("div", { className: "progress-bar" }, [
-        UI.el("div", { className: "progress-fill", style: "width:" + pct.toFixed(0) + "%" }, [])
-      ]));
-      prog.appendChild(UI.el("div", { className: "ui-text", text: "Income: CHF " + formatMoney(summary.income) + " · Expense: CHF " + formatMoney(summary.expense) + " · " + pct.toFixed(0) + "% remaining" }, []));
       summaryCard.appendChild(UI.el("div", { style: "height:10px" }, []));
-      summaryCard.appendChild(prog);
+      summaryCard.appendChild(UI.el("div", { className: "progress-wrap" }, [
+        UI.el("div", { className: "progress-bar" }, [
+          UI.el("div", { className: "progress-fill", style: "width:" + pct.toFixed(0) + "%" }, [])
+        ]),
+        UI.el("div", { className: "ui-text", text: "Income: CHF " + formatMoney(summary.income) + " · Expense: CHF " + formatMoney(summary.expense) + " · " + pct.toFixed(0) + "% remaining" }, [])
+      ]));
 
       container.appendChild(summaryCard);
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
-      // Actions
       var actionsCard = UI.el("div", { className: "card tile" }, []);
       actionsCard.appendChild(UI.el("div", { className: "tile__label", text: "Actions" }, []));
 
@@ -45,14 +43,12 @@
 
       row.appendChild(addTx);
       row.appendChild(addGk);
-
       actionsCard.appendChild(UI.el("div", { style: "height:10px" }, []));
       actionsCard.appendChild(row);
 
       container.appendChild(actionsCard);
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
-      // Transactions list
       var txCard = UI.el("div", { className: "card tile" }, []);
       txCard.appendChild(UI.el("div", { className: "tile__label", text: "Transactions (this month)" }, []));
       await renderTransactions(txCard, month);
@@ -60,28 +56,19 @@
 
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
-      // Gatekeeper list
       var gkCard = UI.el("div", { className: "card tile" }, []);
-      gkCard.appendChild(UI.el("div", { className: "tile__label", text: "Gatekeeper" }, []));
+      gkCard.appendChild(UI.el("div", { className: "tile__label", text: "Gatekeeper (72h)" }, []));
       await renderGatekeepers(gkCard, summary.remaining);
       container.appendChild(gkCard);
 
-      // Action from dashboard
-      if (action === "addTx") {
-        await addTransactionFlow(month);
-        Router.go("finance", {});
-      }
-      if (action === "addGatekeeper") {
-        await addGatekeeperFlow(summary.remaining);
-        Router.go("finance", {});
-      }
+      if (action === "addTx") { await addTransactionFlow(month); Router.go("finance", {}); }
+      if (action === "addGatekeeper") { await addGatekeeperFlow(summary.remaining); Router.go("finance", {}); }
     }
   });
 
   async function computeMonthSummary(month) {
     var txs = await State.listTransactionsByMonth(month);
-    var income = 0;
-    var expense = 0;
+    var income = 0, expense = 0;
     for (var i = 0; i < txs.length; i++) {
       var t = txs[i];
       var amt = Number(t.amount || 0);
@@ -148,9 +135,7 @@
         UI.el("div", { className: "todo-text", text: (t.type === "income" ? "↑ " : "↓ ") + (t.name || "—") + " · CHF " + formatMoney(t.amount) + (t.fixed ? " (fixed)" : "") }, [])
       ]);
 
-      left.addEventListener("click", function () {
-        editTransactionFlow(t);
-      });
+      left.addEventListener("click", function () { editTransactionFlow(t); });
 
       var right = UI.el("div", { className: "todo-right" }, []);
       var del = UI.el("button", { className: "btn btn-mini", type: "button", text: "Delete" }, []);
@@ -217,52 +202,71 @@
     var now = Date.now();
 
     items.forEach(function (g) {
-      // auto-mark eligible in UI (persist optional in later)
       var unlock = Date.parse(g.unlockAt || "");
-      var eligible = !isNaN(unlock) && now >= unlock;
+      var eligible = (!isNaN(unlock)) && (now >= unlock);
       var status = g.status || "locked";
-      if (status === "locked" && eligible) status = "eligible";
+      var displayStatus = status;
+
+      if (status === "locked" && eligible) displayStatus = "eligible";
+
+      var remainingMs = (!isNaN(unlock)) ? Math.max(0, unlock - now) : null;
+      var countdown = (remainingMs === null) ? "—" : (eligible ? "0h (eligible)" : formatCountdown(remainingMs));
 
       var impact = (typeof remaining === "number" && remaining > 0) ? ((Number(g.price || 0) / remaining) * 100) : null;
+      var impactTxt = (impact !== null) ? (" · impact " + impact.toFixed(0) + "%") : "";
 
-      var line = (status === "purchased" ? "✓ " : "• ") +
+      var warn = (typeof remaining === "number" && Number(g.price || 0) > remaining);
+
+      var line =
+        (status === "purchased" ? "✓ " : "• ") +
         (g.name || "—") +
         " · CHF " + formatMoney(g.price) +
-        " · " + status +
-        (impact !== null ? (" · impact " + impact.toFixed(0) + "%") : "");
+        " · " + displayStatus +
+        " · " + countdown +
+        impactTxt +
+        (warn ? " · WARNING" : "");
 
       var row = UI.el("div", { className: "todo-row" }, []);
       var left = UI.el("div", { className: "todo-left" }, [
-        UI.el("div", { className: "todo-text", text: line }, [])
+        UI.el("div", { className: "todo-text" + (warn ? " is-warn" : ""), text: line }, [])
       ]);
 
       var right = UI.el("div", { className: "todo-right" }, []);
 
-      if (status !== "purchased") {
+      if (status !== "purchased" && status !== "cancelled") {
         var buy = UI.el("button", { className: "btn btn-mini", type: "button", text: "Gekauft" }, []);
         buy.addEventListener("click", function () {
-          if (typeof remaining === "number" && Number(g.price || 0) > remaining) {
+          // Enforce eligible unless override
+          if (!eligible) {
+            UI.confirm("Not eligible yet", "72h not passed. Override and mark as purchased anyway?").then(function (ok) {
+              if (!ok) return;
+              doPurchase(g.id);
+            });
+            return;
+          }
+
+          if (warn) {
             UI.confirm("Warning", "Price > remaining. Still mark as purchased?").then(function (ok) {
               if (!ok) return;
               doPurchase(g.id);
             });
-          } else {
-            doPurchase(g.id);
+            return;
           }
+
+          doPurchase(g.id);
         });
         right.appendChild(buy);
       }
 
-      var del = UI.el("button", { className: "btn btn-mini", type: "button", text: "Delete" }, []);
-      del.addEventListener("click", function () {
-        UI.confirm("Delete", "Delete this gatekeeper item?").then(function (ok) {
+      var cancel = UI.el("button", { className: "btn btn-mini", type: "button", text: "Cancel" }, []);
+      cancel.addEventListener("click", function () {
+        UI.confirm("Cancel", "Cancel this gatekeeper item?").then(function (ok) {
           if (!ok) return;
-          // delete: we don't have direct delete API; use update status cancelled
           g.status = "cancelled";
           State.updateGatekeeper(g).then(function () { UI.toast("Cancelled"); Router.go("finance", {}); });
         });
       });
-      right.appendChild(del);
+      right.appendChild(cancel);
 
       row.appendChild(left);
       row.appendChild(right);
@@ -279,6 +283,13 @@
         UI.toast("Error: " + (e && e.message ? e.message : String(e)));
       });
     }
+  }
+
+  function formatCountdown(ms) {
+    var totalMin = Math.ceil(ms / 60000);
+    var h = Math.floor(totalMin / 60);
+    var m = totalMin % 60;
+    return h + "h " + m + "m";
   }
 
   function formatMoney(n) {
