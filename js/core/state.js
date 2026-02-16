@@ -1,213 +1,319 @@
-(function () {
-  const DB_NAME = "personalOS";
-  const DB_VERSION = 2;
+// js/core/state.js
 
-  function promisify(req) {
-    return new Promise((resolve, reject) => {
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-  }
+const State = (function () {
+
+  const DB_NAME = "personalOS";
+  const DB_VERSION = 4;
+
+  let db = null;
+  let vaultStoreName = "vaultEntries";
 
   function openDB() {
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      req.onupgradeneeded = (e) => {
-        const db = req.result;
+      request.onupgradeneeded = function (event) {
+        const database = event.target.result;
 
-        function ensure(name, opts) {
-          if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, opts);
+        function createIfMissing(name, options) {
+          if (!database.objectStoreNames.contains(name)) {
+            database.createObjectStore(name, options);
+          }
         }
 
-        ensure("settings", { keyPath: "id" });
-        ensure("journalEntries", { keyPath: "date" });
-        ensure("calendarBlocks", { keyPath: "id", autoIncrement: true });
-        ensure("dayTemplates", { keyPath: "id", autoIncrement: true });
-        ensure("financeCategories", { keyPath: "id", autoIncrement: true });
-        ensure("financeTransactions", { keyPath: "id", autoIncrement: true });
-        ensure("gatekeeperItems", { keyPath: "id", autoIncrement: true });
-        ensure("vaultEntries", { keyPath: "id", autoIncrement: true });
+        // Core stores (explicit schemas)
+        createIfMissing("settings", { keyPath: "id" });
+        createIfMissing("journalEntries", { keyPath: "date" });
+        createIfMissing("calendarBlocks", { keyPath: "id", autoIncrement: true });
+        createIfMissing("dayTemplates", { keyPath: "id", autoIncrement: true });
+        createIfMissing("financeCategories", { keyPath: "id", autoIncrement: true });
+        createIfMissing("financeTransactions", { keyPath: "id", autoIncrement: true });
+        createIfMissing("gatekeeperItems", { keyPath: "id", autoIncrement: true });
 
-        // Seed defaults after upgrade completes
-        e.target.transaction.oncomplete = () => {
-          try {
-            const tx = db.transaction(["settings", "financeCategories"], "readwrite");
-            const settings = tx.objectStore("settings");
-            const cats = tx.objectStore("financeCategories");
+        // Vault default (preferred)
+        if (!database.objectStoreNames.contains("vaultEntries")) {
+          database.createObjectStore("vaultEntries", { keyPath: "dayKey" });
+        }
 
-            const sReq = settings.get("main");
-            sReq.onsuccess = () => {
-              if (!sReq.result) {
-                settings.put({
-                  id: "main",
-                  ui: { startScreen: "dashboard", startTab: "mindset" },
-                  finance: { monthIncome: 0 }
-                });
-              } else {
-                // Ensure required keys exist
-                const s = sReq.result;
-                s.ui = s.ui || {};
-                if (!s.ui.startScreen) s.ui.startScreen = "dashboard";
-                settings.put(s);
-              }
-            };
+        const tx = event.target.transaction;
 
-            const cReq = cats.count();
-            cReq.onsuccess = () => {
-              if (cReq.result === 0) {
-                [
-                  { type: "income", name: "Salary", order: 1 },
-                  { type: "income", name: "Other", order: 2 },
-                  { type: "expense", name: "Rent", order: 1 },
-                  { type: "expense", name: "Food", order: 2 },
-                  { type: "expense", name: "Transport", order: 3 },
-                  { type: "expense", name: "Subscriptions", order: 4 },
-                  { type: "expense", name: "Leisure", order: 5 },
-                  { type: "expense", name: "Essentials", order: 6 }
-                ].forEach((c) => cats.add(c));
-              }
-            };
-          } catch (_) {
-            // swallow; never kill upgrade
+        // Indexes
+        if (database.objectStoreNames.contains("financeTransactions")) {
+          const store = tx.objectStore("financeTransactions");
+          if (!store.indexNames.contains("month")) store.createIndex("month", "month", { unique: false });
+          if (!store.indexNames.contains("date")) store.createIndex("date", "date", { unique: false });
+        }
+
+        if (database.objectStoreNames.contains("calendarBlocks")) {
+          const store = tx.objectStore("calendarBlocks");
+          if (!store.indexNames.contains("date")) store.createIndex("date", "date", { unique: false });
+        }
+
+        // ===== Robust Vault Migration =====
+        // If an existing vaultEntries store is legacy (non-dayKey keyPath), create vaultEntriesByDay
+        // and use it for new snapshots. No deletion, no data loss (legacy snapshots stay where they are).
+        if (database.objectStoreNames.contains("vaultEntries")) {
+          const store = tx.objectStore("vaultEntries");
+          const kp = store.keyPath;
+
+          const isDayKey =
+            kp === "dayKey" ||
+            (Array.isArray(kp) && kp.length === 1 && kp[0] === "dayKey");
+
+          if (!isDayKey) {
+            if (!database.objectStoreNames.contains("vaultEntriesByDay")) {
+              database.createObjectStore("vaultEntriesByDay", { keyPath: "dayKey" });
+            }
+            vaultStoreName = "vaultEntriesByDay";
           }
-        };
+        }
+        // ===== END Migration =====
       };
 
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      request.onsuccess = function (event) {
+        db = event.target.result;
+
+        // If migration created/exists the new store, use it
+        if (db.objectStoreNames.contains("vaultEntriesByDay")) {
+          vaultStoreName = "vaultEntriesByDay";
+        } else {
+          vaultStoreName = "vaultEntries";
+        }
+
+        resolve(db);
+      };
+
+      request.onerror = function () {
+        reject("IndexedDB failed");
+      };
     });
   }
 
-  async function withStore(storeNames, mode, fn) {
-    const db = await openDB();
-    const tx = db.transaction(storeNames, mode);
+  function getTodayKey() {
+    return new Date().toISOString().split("T")[0];
+  }
 
-    const stores = Array.isArray(storeNames)
-      ? storeNames.map((n) => tx.objectStore(n))
-      : [tx.objectStore(storeNames)];
+  function getMonthKey(date) {
+    return String(date || "").slice(0, 7);
+  }
 
-    const result = await fn.apply(null, stores);
+  function timeToMinutes(str) {
+    if (!str) return 0;
+    const parts = String(str).split(":");
+    const h = parseInt(parts[0] || "0", 10);
+    const m = parseInt(parts[1] || "0", 10);
+    return h * 60 + m;
+  }
+
+  function getSettings() {
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction("settings", "readonly");
+        const req = tx.objectStore("settings").get("main");
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+  }
+
+  function putSettings(settings) {
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = db.transaction("settings", "readwrite");
+        tx.objectStore("settings").put(settings);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(false);
+        tx.onabort = () => reject(false);
+      } catch (e) {
+        reject(false);
+      }
+    });
+  }
+
+  async function ensureTodayState() {
+    const today = getTodayKey();
+    let settings = await getSettings();
+
+    if (!settings) {
+      settings = {
+        id: "main",
+        currentDayKey: today,
+        dayStatus: "morning",
+        morningCompletedAt: null,
+        eveningStartedAt: null,
+        dayClosedAt: null
+      };
+      await putSettings(settings);
+      return;
+    }
+
+    if (settings.currentDayKey !== today) {
+      settings.currentDayKey = today;
+      settings.dayStatus = "morning";
+      settings.morningCompletedAt = null;
+      settings.eveningStartedAt = null;
+      settings.dayClosedAt = null;
+      await putSettings(settings);
+    }
+  }
+
+  async function getDayStatus() {
+    const s = await getSettings();
+    if (!s) return "morning";
+    return s.dayStatus || "morning";
+  }
+
+  async function completeMorning() {
+    const s = await getSettings();
+    if (!s || s.dayStatus !== "morning") return false;
+
+    s.dayStatus = "execution";
+    s.morningCompletedAt = Date.now();
+    await putSettings(s);
+    return true;
+  }
+
+  async function startEvening() {
+    const s = await getSettings();
+    if (!s || s.dayStatus !== "execution") return false;
+
+    s.dayStatus = "evening";
+    s.eveningStartedAt = Date.now();
+    await putSettings(s);
+    return true;
+  }
+
+  async function closeDay() {
+    const s = await getSettings();
+    if (!s || s.dayStatus !== "evening") return false;
+
+    const today = s.currentDayKey;
+    const monthKey = getMonthKey(today);
+
+    const journal = await new Promise((resolve) => {
+      try {
+        const tx = db.transaction("journalEntries", "readonly");
+        const req = tx.objectStore("journalEntries").get(today);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+
+    let total = 0;
+    let done = 0;
+
+    if (journal && journal.morning && Array.isArray(journal.morning.todos)) {
+      total = journal.morning.todos.length;
+      done = journal.morning.todos.filter((t) => !!t.done).length;
+    }
+
+    const performance = total === 0 ? 0 : Math.round((done / total) * 100);
+
+    const blocks = await new Promise((resolve) => {
+      try {
+        const tx = db.transaction("calendarBlocks", "readonly");
+        const store = tx.objectStore("calendarBlocks");
+        if (store.indexNames && store.indexNames.contains("date")) {
+          const index = store.index("date");
+          const req = index.getAll(today);
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        } else {
+          const req = store.getAll();
+          req.onsuccess = () => resolve((req.result || []).filter((b) => b && b.date === today));
+          req.onerror = () => resolve([]);
+        }
+      } catch (e) {
+        resolve([]);
+      }
+    });
+
+    blocks.sort((a, b) => timeToMinutes(a && a.start) - timeToMinutes(b && b.start));
+
+    const transactions = await new Promise((resolve) => {
+      try {
+        const tx = db.transaction("financeTransactions", "readonly");
+        const store = tx.objectStore("financeTransactions");
+
+        if (store.indexNames && store.indexNames.contains("month")) {
+          const index = store.index("month");
+          const req = index.getAll(monthKey);
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        } else {
+          const req = store.getAll();
+          req.onsuccess = () => resolve((req.result || []).filter((t) => (t && t.month) === monthKey));
+          req.onerror = () => resolve([]);
+        }
+      } catch (e) {
+        resolve([]);
+      }
+    });
+
+    let income = 0;
+    let expense = 0;
+
+    transactions.forEach((t) => {
+      const amt = Number((t && t.amount) || 0);
+      if (t && t.type === "income") income += amt;
+      if (t && t.type === "expense") expense += amt;
+    });
+
+    const remaining = income - expense;
+
+    const snapshot = {
+      dayKey: today,
+      closedAt: Date.now(),
+      performanceScore: performance,
+      todos: { total: total, done: done },
+      blocksSummary: (blocks || []).map((b) => ({
+        start: b && b.start,
+        end: b && b.end,
+        title: b && b.title
+      })),
+      morningSummary: {
+        lookingForward: (journal && journal.morning && journal.morning.lookingForward) ? journal.morning.lookingForward : "",
+        planning: (journal && journal.morning && journal.morning.planning) ? journal.morning.planning : ""
+      },
+      eveningSummary: {
+        reflection: (journal && journal.evening && journal.evening.reflection) ? journal.evening.reflection : "",
+        rating: (journal && journal.evening && journal.evening.rating) ? journal.evening.rating : "",
+        gratitude: (journal && journal.evening && journal.evening.gratitude) ? journal.evening.gratitude : ""
+      },
+      finance: { income: income, expense: expense, remaining: remaining }
+    };
 
     await new Promise((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
+      try {
+        const storeName = (db.objectStoreNames.contains("vaultEntriesByDay")) ? "vaultEntriesByDay" : vaultStoreName;
+        const tx = db.transaction(storeName, "readwrite");
+        tx.objectStore(storeName).put(snapshot);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(false);
+        tx.onabort = () => reject(false);
+      } catch (e) {
+        reject(false);
+      }
     });
 
-    db.close();
-    return result;
+    s.dayStatus = "closed";
+    s.dayClosedAt = Date.now();
+    await putSettings(s);
+
+    return true;
   }
 
-  const api = {
-    // Settings
-    async getSettings() {
-      return withStore("settings", "readonly", (s) => promisify(s.get("main")));
-    },
-    async putSettings(settings) {
-      return withStore("settings", "readwrite", (s) => promisify(s.put(settings)));
-    },
-
-    // Journal
-    async getJournal(date) {
-      return withStore("journalEntries", "readonly", (s) => promisify(s.get(date)));
-    },
-    async putJournal(entry) {
-      return withStore("journalEntries", "readwrite", (s) => promisify(s.put(entry)));
-    },
-
-    // Calendar blocks
-    async listBlocks(date) {
-      return withStore("calendarBlocks", "readonly", async (s) => {
-        const all = await promisify(s.getAll());
-        return all.filter((b) => b.date === date).sort((a, b) => (a.start < b.start ? -1 : 1));
-      });
-    },
-    async addBlock(block) {
-      return withStore("calendarBlocks", "readwrite", (s) => promisify(s.add(block)));
-    },
-    async deleteBlock(id) {
-      return withStore("calendarBlocks", "readwrite", (s) => promisify(s.delete(id)));
-    },
-
-    // Templates
-    async listTemplates() {
-      return withStore("dayTemplates", "readonly", async (s) => {
-        const all = await promisify(s.getAll());
-        all.sort((a, b) => (a.name > b.name ? 1 : -1));
-        return all;
-      });
-    },
-    async addTemplate(t) {
-      return withStore("dayTemplates", "readwrite", (s) => promisify(s.add(t)));
-    },
-    async deleteTemplate(id) {
-      return withStore("dayTemplates", "readwrite", (s) => promisify(s.delete(id)));
-    },
-    async applyTemplateToDate(template, date) {
-      return withStore("calendarBlocks", "readwrite", async (s) => {
-        const blocks = Array.isArray(template.blocks) ? template.blocks : [];
-        for (let i = 0; i < blocks.length; i++) {
-          const b = blocks[i];
-          await promisify(s.add({ date, start: b.start, end: b.end, title: b.title }));
-        }
-        return true;
-      });
-    },
-
-    // Finance
-    async listFinanceCategories() {
-      return withStore("financeCategories", "readonly", async (s) => {
-        const all = await promisify(s.getAll());
-        all.sort((a, b) => {
-          if (a.type === b.type) return (a.order ?? 999) - (b.order ?? 999);
-          return a.type.localeCompare(b.type);
-        });
-        return all;
-      });
-    },
-    async addFinanceCategory(cat) {
-      return withStore("financeCategories", "readwrite", (s) => promisify(s.add(cat)));
-    },
-
-    async listTransactions(month) {
-      return withStore("financeTransactions", "readonly", async (s) => {
-        const all = await promisify(s.getAll());
-        return all.filter((t) => t.month === month).sort((a, b) => (a.date < b.date ? 1 : -1));
-      });
-    },
-    async addTransaction(txn) {
-      return withStore("financeTransactions", "readwrite", (s) => promisify(s.add(txn)));
-    },
-
-    // Gatekeeper
-    async listGatekeeper() {
-      return withStore("gatekeeperItems", "readonly", async (s) => {
-        const all = await promisify(s.getAll());
-        all.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        return all;
-      });
-    },
-    async addGatekeeperItem(item) {
-      return withStore("gatekeeperItems", "readwrite", (s) => promisify(s.add(item)));
-    },
-    async updateGatekeeperItem(item) {
-      return withStore("gatekeeperItems", "readwrite", (s) => promisify(s.put(item)));
-    },
-
-    // Vault
-    async listVault() {
-      return withStore("vaultEntries", "readonly", async (s) => {
-        const all = await promisify(s.getAll());
-        all.sort((a, b) => ((a.date || "") < (b.date || "") ? 1 : -1));
-        return all;
-      });
-    },
-    async addVault(entry) {
-      return withStore("vaultEntries", "readwrite", (s) => promisify(s.add(entry)));
-    }
+  return {
+    openDB,
+    ensureTodayState,
+    getDayStatus,
+    completeMorning,
+    startEvening,
+    closeDay
   };
 
-  window.POS = window.POS || {};
-  window.POS.state = api;
 })();
