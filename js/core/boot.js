@@ -53,7 +53,6 @@
   }
 
   async function killSwitchNoSW() {
-    // ?nosw=1 => unregister all SW + delete caches + reload (no query)
     try {
       if (!("serviceWorker" in navigator)) return false;
 
@@ -69,7 +68,6 @@
         }
       }
 
-      // remove nosw from URL
       var u = new URL(location.href);
       u.searchParams.delete("nosw");
       history.replaceState({}, "", u.toString());
@@ -81,23 +79,19 @@
   }
 
   async function registerSW() {
-    if (!("serviceWorker" in navigator)) return;
+    if (!("serviceWorker" in navigator)) consideration: return;
 
-    // Always register at repo root scope; SW uses scope to derive base path
     try {
       var reg = await navigator.serviceWorker.register("./service-worker.js?v=" + APP_VERSION, { scope: "./" });
 
-      // Light update hint
       reg.addEventListener("updatefound", function () {
         UI.toast("Update found…", 2000);
       });
 
-      // If waiting, prompt user to reload (iOS-safe)
       if (reg.waiting) {
         UI.toast("Update ready. Reload app.", 2500);
       }
 
-      // When controller changes -> reload once
       var refreshed = false;
       navigator.serviceWorker.addEventListener("controllerchange", function () {
         if (refreshed) return;
@@ -106,7 +100,7 @@
         setTimeout(function () { location.reload(); }, 500);
       });
     } catch (e) {
-      // SW errors should never break app boot
+      // SW errors must not break boot
     }
   }
 
@@ -118,9 +112,15 @@
     await State.init();
     await State.ensureTodayState();
 
-    Router.init();
+    // Finance month logic
+    try {
+      var res = await State.financeEnsureMonth();
+      if (res && res.showReminder) {
+        UI.toast("Finance: Monat ausfüllen", 2500);
+      }
+    } catch (e) {}
 
-    // SW register after app is stable
+    Router.init();
     await registerSW();
   }
 
@@ -128,7 +128,7 @@
     try {
       if (hasQueryFlag("nosw")) {
         await killSwitchNoSW();
-        return; // page will reload
+        return;
       }
       await boot();
     } catch (e) {
