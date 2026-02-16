@@ -1,148 +1,133 @@
 // js/core/router.js
-// PERSONAL OS — Router (crash-safe, works with BOTH layouts)
-// Layout A (new): single mount root #app-content (preferred)
-// Layout B (legacy): pre-rendered screens with ids like #screen-dashboard, #screen-mindset, etc.
-// Rules: never let a screen error break navigation.
+// PERSONAL OS — Router (no modules, crash-safe, dashboard default)
 
-const Router = (function () {
+(function () {
   "use strict";
 
-  let currentScreen = null;
-  let params = Object.create(null);
+  // Ensure a stable namespace
+  window.PersonalOS = window.PersonalOS || {};
 
-  function init() {
-    // Default route is always dashboard (start screen is NOT a tab)
-    try {
-      go("dashboard");
-    } catch (e) {
-      console.error("Router.init failed", e);
+  function ensureRegistry() {
+    // Accept both: window.ScreenRegistry and window.PersonalOS.ScreenRegistry
+    var reg = window.ScreenRegistry || window.PersonalOS.ScreenRegistry || null;
+
+    // If still missing, create a minimal registry to prevent crashes
+    if (!reg) {
+      var _screens = {};
+      var _mounted = {};
+
+      reg = {
+        register: function (name, def) { _screens[name] = def; },
+        get: function (name) { return _screens[name] || null; },
+        isMounted: function (name) { return !!_mounted[name]; },
+        markMounted: function (name) { _mounted[name] = true; },
+        resetMounted: function (name) { if (name) delete _mounted[name]; else _mounted = {}; },
+        list: function () { return Object.keys(_screens); }
+      };
+
+      window.ScreenRegistry = reg;
+      window.PersonalOS.ScreenRegistry = reg;
     }
+
+    // Keep both references in sync
+    window.ScreenRegistry = reg;
+    window.PersonalOS.ScreenRegistry = reg;
+
+    return reg;
   }
 
+  var _params = {};
+  var _current = null;
+
   function setParam(key, value) {
-    try {
-      params[String(key)] = value;
-    } catch (_) {}
+    try { _params[key] = value; } catch (e) {}
   }
 
   function getParam(key) {
-    try {
-      return params[String(key)];
-    } catch (_) {
-      return undefined;
-    }
+    try { return _params[key]; } catch (e) { return undefined; }
   }
 
   function clearParams() {
-    params = Object.create(null);
+    _params = {};
   }
 
-  function getCurrent() {
-    return currentScreen;
+  function mountIntoAppContent(htmlOrNode) {
+    var host = document.getElementById("app-content");
+    if (!host) return;
+
+    host.innerHTML = "";
+
+    if (typeof htmlOrNode === "string") {
+      host.innerHTML = htmlOrNode;
+      return;
+    }
+
+    if (htmlOrNode && htmlOrNode.nodeType) {
+      host.appendChild(htmlOrNode);
+    }
   }
 
-  function _mountNewLayout(screenName) {
-    const root = document.getElementById("app-content");
-    if (!root) return false;
+  function renderErrorScreen(title, details) {
+    var wrap = document.createElement("div");
+    wrap.className = "error";
+    wrap.innerHTML =
+      "<div style='font-weight:700; margin-bottom:6px;'>" + (title || "Error") + "</div>" +
+      "<div style='opacity:0.85; font-size:14px;'>" + (details || "Unknown") + "</div>";
+    mountIntoAppContent(wrap);
+  }
 
-    // Clear root first (prevent mixed UI)
-    root.innerHTML = "";
+  async function go(screenName) {
+    var reg = ensureRegistry();
 
-    // ScreenRegistry is expected in new layout
-    if (!window.ScreenRegistry || typeof window.ScreenRegistry.get !== "function") {
-      root.innerHTML = "<div class='error'>Screen registry missing</div>";
-      return true; // handled (we rendered an error)
-    }
-
-    const screen = window.ScreenRegistry.get(screenName);
-    if (!screen || typeof screen.mount !== "function") {
-      root.innerHTML = "<div class='error'>Screen not found</div>";
-      return true;
-    }
-
-    // Guard: screen mount must never kill router
     try {
-      const res = screen.mount(root, { params: params, router: api });
-      // If mount returns a promise, guard async errors too
-      if (res && typeof res.then === "function") {
-        res.catch((e) => {
-          console.error("Screen async mount error", e);
-          try {
-            root.innerHTML = "<div class='error'>Screen failed to load</div>";
-          } catch (_) {}
-        });
+      _current = String(screenName || "");
+
+      // Dashboard is a first-class screen (not a tab)
+      var def = reg.get(_current);
+
+      if (!def || typeof def.mount !== "function") {
+        renderErrorScreen("Screen not found", _current);
+        return;
       }
-    } catch (e) {
-      console.error("Screen mount error", e);
-      root.innerHTML = "<div class='error'>Screen failed to load</div>";
-    }
 
-    return true;
-  }
-
-  function _activateLegacyLayout(screenName) {
-    // Legacy: screens are in DOM, we just toggle .active
-    const screens = document.querySelectorAll(".screen");
-    if (!screens || screens.length === 0) return false;
-
-    screens.forEach((s) => {
-      try { s.classList.remove("active"); } catch (_) {}
-    });
-
-    const el = document.getElementById("screen-" + screenName);
-    if (!el) {
-      console.warn("Legacy screen not found:", screenName);
-      return true; // handled, nothing else to do
-    }
-
-    try { el.classList.add("active"); } catch (_) {}
-
-    // If ScreenRegistry exists, try mount lazily (optional)
-    try {
-      if (window.ScreenRegistry && typeof window.ScreenRegistry.mountIfNeeded === "function") {
-        window.ScreenRegistry.mountIfNeeded(screenName, { params: params, router: api });
+      var host = document.getElementById("app-content");
+      if (!host) {
+        renderErrorScreen("Host missing", "#app-content not found");
+        return;
       }
-    } catch (e) {
-      console.error("Legacy mountIfNeeded error", e);
-    }
 
-    return true;
-  }
+      // Lazy mount: only mount logic can decide if it wants to re-render
+      // We still allow mount every time (simple + stable)
+      await def.mount(host, { params: _params });
 
-  function go(screenName) {
-    try {
-      if (!screenName) return;
-      screenName = String(screenName);
-
-      if (currentScreen === screenName) return;
-      currentScreen = screenName;
-
-      // Clear one-shot params when navigating unless caller set them (caller can manage)
-      // We DO NOT auto-clear here because "viewVault" etc. must survive the jump.
-      // Caller can clear via clearParams() after consumption.
-
-      // Prefer new layout if present
-      const handledNew = _mountNewLayout(screenName);
-      if (handledNew) return;
-
-      // Fallback legacy
-      const handledLegacy = _activateLegacyLayout(screenName);
-      if (handledLegacy) return;
-
-      console.warn("Router: no compatible layout found (missing #app-content and .screen nodes)");
     } catch (e) {
       console.error("Router.go failed", e);
+      renderErrorScreen("Navigation error", (e && e.message) ? e.message : String(e));
     }
   }
 
-  const api = {
-    init,
-    go,
-    getCurrent,
-    setParam,
-    getParam,
-    clearParams
+  function init() {
+    try {
+      ensureRegistry();
+
+      // Always start on dashboard
+      go("dashboard");
+
+    } catch (e) {
+      console.error("Router.init failed", e);
+      renderErrorScreen("Boot error", (e && e.message) ? e.message : String(e));
+    }
+  }
+
+  window.Router = {
+    init: init,
+    go: go,
+    setParam: setParam,
+    getParam: getParam,
+    clearParams: clearParams
   };
 
-  return api;
+  // Also store under namespace for safety
+  window.PersonalOS.Router = window.Router;
+
 })();
