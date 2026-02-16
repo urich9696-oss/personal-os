@@ -86,13 +86,8 @@ body{
   gap: 12px;
 }
 
-.tile{
-  padding: 14px;
-}
-
-.tile-click{
-  cursor: pointer;
-}
+.tile{ padding: 14px; }
+.tile-click{ cursor: pointer; }
 
 .tile__label{
   font-size: 12px;
@@ -124,9 +119,7 @@ body{
   box-shadow: 0 6px 18px rgba(0,0,0,0.08);
 }
 
-.btn:active{
-  transform: translateY(1px);
-}
+.btn:active{ transform: translateY(1px); }
 
 .btn-mini{
   padding: 10px 10px;
@@ -170,15 +163,16 @@ body{
   color: var(--text);
   border-radius: 14px;
   padding: 10px 8px;
-  font-weight: 700;
+  font-weight: 800;
   font-size: 11px;
   line-height: 1.1;
   text-align: center;
 }
 
 .bottom-nav__btn.is-active{
-  border-color: rgba(18,18,18,0.22);
-  background: rgba(255,255,255,0.70);
+  border-color: rgba(18,18,18,0.28);
+  background: rgba(255,255,255,0.78);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.10);
 }
 
 .toast-host{
@@ -203,7 +197,7 @@ body{
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 /* --- UI Modal --- */
@@ -231,13 +225,11 @@ body{
 }
 
 .ui-modal__title{
-  font-weight: 800;
+  font-weight: 900;
   font-size: 14px;
 }
 
-.ui-modal__body{
-  margin-top: 10px;
-}
+.ui-modal__body{ margin-top: 10px; }
 
 .ui-modal__footer{
   margin-top: 12px;
@@ -260,7 +252,7 @@ body{
   padding: 12px 14px;
   border: 1px solid rgba(18,18,18,0.15);
   background: rgba(255,255,255,0.65);
-  font-weight: 700;
+  font-weight: 800;
   font-size: 14px;
   color: var(--text);
 }
@@ -271,18 +263,16 @@ body{
   padding: 12px 14px;
   border: 1px solid rgba(18,18,18,0.15);
   background: rgba(255,255,255,0.65);
-  font-weight: 700;
+  font-weight: 800;
   font-size: 13px;
   color: var(--text);
   resize: vertical;
 }
 
-.q-block{
-  margin-top: 6px;
-}
+.q-block{ margin-top: 6px; }
 
 .q-title{
-  font-weight: 800;
+  font-weight: 900;
   font-size: 12px;
   opacity: 0.85;
   margin-bottom: 6px;
@@ -304,11 +294,15 @@ body{
 }
 
 .todo-text{
-  font-weight: 800;
+  font-weight: 900;
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.todo-text.is-warn{
+  color: var(--danger);
 }
 
 .todo-right{
@@ -324,9 +318,7 @@ body{
   align-items: center;
 }
 
-.vault-item{
-  width: 100%;
-}
+.vault-item{ width: 100%; }
 
 .progress-wrap{
   display: flex;
