@@ -127,11 +127,9 @@
         log("SW-KILL result: sw=" + (okSW ? "ok" : "n/a") + " caches=" + (okCaches ? "ok" : "n/a"));
         log("SW cleared → reloading without ?nosw=1 ...");
 
-        // remove nosw from URL and hard reload
         try {
           var url = new URL(location.href);
           url.searchParams.delete("nosw");
-          // keep a cache-bust to avoid any intermediate caching
           url.searchParams.set("v", String(Date.now()));
           location.replace(url.toString());
         } catch (_) {
@@ -139,7 +137,6 @@
         }
       }
 
-      // Trigger SW kill switch if user hits ?nosw=1
       try {
         var q = location.search || "";
         if (q.indexOf("nosw=1") !== -1) {
@@ -149,10 +146,8 @@
         }
       } catch (_) {}
 
-      // Quick boot check after parsing
       setTimeout(function () { postCheck("BOOT CHECK"); }, 800);
 
-      // Expose version for later debugging
       try { window.__APP_VERSION__ = VERSION; } catch (_) {}
     })();
   </script>
@@ -173,7 +168,7 @@
   <!-- Boot LAST -->
   <script src="./js/core/boot.js?v=2026-02-16-01"></script>
 
-  <!-- Bottom Nav binding -->
+  <!-- Bottom Nav binding (Router-driven) -->
   <script>
     (function () {
       "use strict";
