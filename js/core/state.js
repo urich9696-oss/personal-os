@@ -1,11 +1,6 @@
 (function () {
   "use strict";
 
-  // PERSONAL OS — State (Business API)
-  // - Screens call ONLY State.*
-  // - DB access only via DB.* (db.js)
-  // - Finance Month Logic + Fixed Items + Report Archive stored in settings.main
-
   var State = {};
   var DB_NAME = "personalOS";
   var DB_VERSION = 99;
@@ -29,7 +24,7 @@
     return "id_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
   }
 
-  function upgrade(db, tx, oldVersion, newVersion) {
+  function upgrade(db, tx) {
     if (!db.objectStoreNames.contains("settings")) {
       db.createObjectStore("settings", { keyPath: "key" });
     }
@@ -119,14 +114,14 @@
   async function ensureMainSettings() {
     var s = await DB.get("settings", "main");
     if (s) {
-      // Ensure finance structure exists
       if (!s.finance) s.finance = {};
       if (!s.finance.currentMonth) s.finance.currentMonth = currentMonthKey();
       if (!Array.isArray(s.finance.fixedItems)) s.finance.fixedItems = [];
-      if (!s.finance.monthFlags) s.finance.monthFlags = {}; // month => { reminderDismissed, fixedAppliedAt }
-      if (!s.finance.reports) s.finance.reports = {}; // month => report snapshot
-      if (!s.version) s.version = { db: DB_VERSION, app: "0.1.0" };
+      if (!s.finance.monthFlags) s.finance.monthFlags = {};     // month => flags
+      if (!s.finance.reports) s.finance.reports = {};           // month => report snapshot
+      if (!s.version) s.version = { db: DB_VERSION, app: "0.1.1" };
       if (!s.version.db) s.version.db = DB_VERSION;
+      if (!s.version.app) s.version.app = "0.1.1";
       await DB.put("settings", s);
       return s;
     }
@@ -134,7 +129,7 @@
     var base = {
       key: "main",
       app: { name: "PERSONAL OS", slogan: "The Architecture of Excellence." },
-      version: { db: DB_VERSION, app: "0.1.0" },
+      version: { db: DB_VERSION, app: "0.1.1" },
       createdAt: nowISO(),
       updatedAt: nowISO(),
       debug: { enabled: false },
@@ -160,9 +155,17 @@
     var cats = await DB.getAll("financeCategories");
     if (cats && cats.length) return;
 
-    await DB.add("financeCategories", { type: "income", name: "Income", order: 1 });
-    await DB.add("financeCategories", { type: "expense", name: "Expense", order: 2 });
-    await DB.add("financeCategories", { type: "gatekeeper", name: "Gatekeeper", order: 3 });
+    // Minimal sane defaults
+    await DB.add("financeCategories", { type: "income", name: "Salary", order: 10 });
+    await DB.add("financeCategories", { type: "income", name: "Other Income", order: 20 });
+
+    await DB.add("financeCategories", { type: "expense", name: "Rent", order: 10 });
+    await DB.add("financeCategories", { type: "expense", name: "Groceries", order: 20 });
+    await DB.add("financeCategories", { type: "expense", name: "Transport", order: 30 });
+    await DB.add("financeCategories", { type: "expense", name: "Subscriptions", order: 40 });
+    await DB.add("financeCategories", { type: "expense", name: "Other Expense", order: 90 });
+
+    await DB.add("financeCategories", { type: "gatekeeper", name: "Gatekeeper", order: 10 });
   }
 
   async function ensureTodayState() {
@@ -194,43 +197,43 @@
     return s;
   }
 
-  // ---------- Finance: Month Logic / Fixed / Reports ----------
+  // ---------- Finance Month Logic ----------
+  function isFirstDay() {
+    try { return new Date().getDate() === 1; } catch (e) { return false; }
+  }
+
   async function financeEnsureMonth() {
     var s = await getSettings();
     if (!s) s = await ensureMainSettings();
 
     var cur = currentMonthKey();
-    var prev = s.finance && s.finance.currentMonth ? s.finance.currentMonth : cur;
+    var prev = (s.finance && s.finance.currentMonth) ? s.finance.currentMonth : cur;
 
     if (!s.finance) s.finance = {};
     if (!Array.isArray(s.finance.fixedItems)) s.finance.fixedItems = [];
     if (!s.finance.monthFlags) s.finance.monthFlags = {};
     if (!s.finance.reports) s.finance.reports = {};
 
-    // If month changed: snapshot previous month report
     if (prev !== cur) {
+      // auto-archive previous month
       var prevReport = await financeBuildReport(prev);
       s.finance.reports[prev] = prevReport;
       s.finance.currentMonth = cur;
 
-      // reset flags for new month
       if (!s.finance.monthFlags[cur]) s.finance.monthFlags[cur] = {};
       s.finance.monthFlags[cur].reminderDismissed = false;
-
+      s.updatedAt = nowISO();
       await DB.put("settings", s);
+
       return { changed: true, month: cur, prev: prev, showReminder: isFirstDay() };
     }
 
-    // month same: decide reminder on day 1 (unless dismissed)
     if (!s.finance.monthFlags[cur]) s.finance.monthFlags[cur] = {};
     var dismissed = !!s.finance.monthFlags[cur].reminderDismissed;
+    s.updatedAt = nowISO();
     await DB.put("settings", s);
 
     return { changed: false, month: cur, prev: prev, showReminder: isFirstDay() && !dismissed };
-  }
-
-  function isFirstDay() {
-    try { return new Date().getDate() === 1; } catch (e) { return false; }
   }
 
   async function financeDismissReminder(month) {
@@ -245,18 +248,46 @@
     return true;
   }
 
+  function financeIsMonthClosed(settingsObj, month) {
+    try {
+      var f = settingsObj.finance.monthFlags && settingsObj.finance.monthFlags[month];
+      return !!(f && f.closedAt);
+    } catch (e) { return false; }
+  }
+
+  async function financeCloseMonth(month) {
+    var m = month || currentMonthKey();
+    var s = await getSettings();
+    if (!s) s = await ensureMainSettings();
+
+    if (!s.finance.monthFlags) s.finance.monthFlags = {};
+    if (!s.finance.monthFlags[m]) s.finance.monthFlags[m] = {};
+
+    if (s.finance.monthFlags[m].closedAt) {
+      return { closed: false, reason: "already-closed", closedAt: s.finance.monthFlags[m].closedAt };
+    }
+
+    var rep = await financeBuildReport(m);
+    if (!s.finance.reports) s.finance.reports = {};
+    s.finance.reports[m] = rep;
+
+    s.finance.monthFlags[m].closedAt = nowISO();
+    s.updatedAt = nowISO();
+    await DB.put("settings", s);
+
+    return { closed: true, report: rep };
+  }
+
   async function financeListFixedItems() {
     var s = await getSettings();
     if (!s) s = await ensureMainSettings();
     var items = (s.finance && Array.isArray(s.finance.fixedItems)) ? s.finance.fixedItems : [];
-    // stable order: income first then expense, then name
-    items = items.slice().sort(function (a, b) {
+    return items.slice().sort(function (a, b) {
       var ta = a.type === "income" ? 0 : 1;
       var tb = b.type === "income" ? 0 : 1;
       if (ta !== tb) return ta - tb;
       return String(a.name || "").localeCompare(String(b.name || ""));
     });
-    return items;
   }
 
   async function financeAddFixedItem(item) {
@@ -270,6 +301,7 @@
       type: item.type === "income" ? "income" : "expense",
       name: (item.name || "").trim() || "Fixed",
       amount: safeNum(item.amount),
+      categoryId: (item.categoryId === null || item.categoryId === undefined) ? null : item.categoryId,
       createdAt: nowISO()
     };
     s.finance.fixedItems.push(fi);
@@ -288,6 +320,7 @@
         arr[i].type = item.type === "income" ? "income" : "expense";
         arr[i].name = (item.name || "").trim() || "Fixed";
         arr[i].amount = safeNum(item.amount);
+        arr[i].categoryId = (item.categoryId === null || item.categoryId === undefined) ? null : item.categoryId;
         arr[i].updatedAt = nowISO();
         break;
       }
@@ -315,7 +348,6 @@
     if (!s.finance.monthFlags) s.finance.monthFlags = {};
     if (!s.finance.monthFlags[m]) s.finance.monthFlags[m] = {};
 
-    // prevent double-apply per month
     if (s.finance.monthFlags[m].fixedAppliedAt) {
       return { applied: false, reason: "already-applied", appliedAt: s.finance.monthFlags[m].fixedAppliedAt };
     }
@@ -323,19 +355,18 @@
     var fixed = (s.finance && Array.isArray(s.finance.fixedItems)) ? s.finance.fixedItems : [];
     if (!fixed.length) {
       s.finance.monthFlags[m].fixedAppliedAt = nowISO();
+      s.updatedAt = nowISO();
       await DB.put("settings", s);
       return { applied: false, reason: "no-fixed-items" };
     }
 
-    // add transactions (one per fixed item)
-    // We mark them as { fixed:true, fixedId:<id> } so we can recognize later if needed.
     for (var i = 0; i < fixed.length; i++) {
       var fi = fixed[i];
       await addTransaction({
         month: m,
         date: m + "-01",
         type: fi.type,
-        categoryId: null,
+        categoryId: (fi.categoryId === undefined) ? null : fi.categoryId,
         name: fi.name,
         amount: safeNum(fi.amount),
         fixed: true,
@@ -354,7 +385,6 @@
     var txs = await listTransactionsByMonth(m);
 
     var income = 0, expense = 0, fixedIncome = 0, fixedExpense = 0;
-    var byName = {}; // simple breakdown
     var gatekeeperPurchases = 0;
 
     for (var i = 0; i < txs.length; i++) {
@@ -369,49 +399,30 @@
         if (t.fixed) fixedExpense += amt;
       }
 
-      var key = (t.type || "expense") + ":" + (t.name || "—");
-      byName[key] = (byName[key] || 0) + amt;
-
       if (t.type === "expense" && String(t.name || "").indexOf("Gatekeeper:") === 0) gatekeeperPurchases += 1;
     }
 
     var remaining = income - expense;
     var pct = income > 0 ? Math.max(0, Math.min(100, (remaining / income) * 100)) : 0;
 
-    // variable expense estimate: total expense - fixedExpense
     var variableExpense = expense - fixedExpense;
 
-    // store top variable spends (by absolute amount, expenses only, non-fixed)
     var varList = [];
     for (var j = 0; j < txs.length; j++) {
       var x = txs[j];
       if (x.type !== "expense") continue;
       if (x.fixed) continue;
-      varList.push({ name: x.name || "—", amount: safeNum(x.amount), date: x.date || "" });
+      varList.push({ name: x.name || "—", amount: safeNum(x.amount), date: x.date || "", categoryId: x.categoryId || null });
     }
     varList.sort(function (a, b) { return safeNum(b.amount) - safeNum(a.amount); });
-    var topVariable = varList.slice(0, 10);
 
     return {
       month: m,
       createdAt: nowISO(),
-      totals: {
-        income: income,
-        expense: expense,
-        remaining: remaining,
-        remainingPct: pct
-      },
-      fixed: {
-        income: fixedIncome,
-        expense: fixedExpense
-      },
-      variable: {
-        expense: variableExpense,
-        top: topVariable
-      },
-      gatekeeper: {
-        purchases: gatekeeperPurchases
-      },
+      totals: { income: income, expense: expense, remaining: remaining, remainingPct: pct },
+      fixed: { income: fixedIncome, expense: fixedExpense },
+      variable: { expense: variableExpense, top: varList.slice(0, 10) },
+      gatekeeper: { purchases: gatekeeperPurchases },
       notes: ""
     };
   }
@@ -569,7 +580,7 @@
     return true;
   }
 
-  // ---------- Finance Core ----------
+  // ---------- Finance Categories ----------
   async function listFinanceCategories(type) {
     var all = await DB.getAll("financeCategories");
     if (type) all = all.filter(function (c) { return c.type === type; });
@@ -577,8 +588,17 @@
     return all;
   }
 
+  async function getFinanceCategory(id) {
+    if (id === null || id === undefined) return null;
+    return DB.get("financeCategories", id);
+  }
+
   async function addFinanceCategory(cat) {
-    var c = { type: cat.type || "expense", name: cat.name || "Category", order: typeof cat.order === "number" ? cat.order : 999 };
+    var c = {
+      type: (cat.type === "income" || cat.type === "expense" || cat.type === "gatekeeper") ? cat.type : "expense",
+      name: (cat.name || "Category").trim(),
+      order: (typeof cat.order === "number") ? cat.order : 999
+    };
     var id = await DB.add("financeCategories", c);
     c.id = id;
     return c;
@@ -590,8 +610,11 @@
     return cat;
   }
 
-  async function deleteFinanceCategory(id) { return DB.del("financeCategories", id); }
+  async function deleteFinanceCategory(id) {
+    return DB.del("financeCategories", id);
+  }
 
+  // ---------- Finance Transactions ----------
   async function listTransactionsByMonth(month) {
     var m = month || currentMonthKey();
     var q = DB.makeRangeOnly(m);
@@ -607,12 +630,11 @@
       month: txn.month || monthKeyFromDateISO(date),
       date: date,
       type: txn.type || "expense",
-      categoryId: txn.categoryId || null,
+      categoryId: (txn.categoryId === undefined) ? null : txn.categoryId,
       name: txn.name || "",
       amount: typeof txn.amount === "number" ? txn.amount : Number(txn.amount || 0),
       fixed: !!txn.fixed
     };
-    // allow extra metadata without migration
     if (txn.fixedId) t.fixedId = txn.fixedId;
 
     var id = await DB.add("financeTransactions", t);
@@ -674,7 +696,7 @@
     await addTransaction({
       date: todayKey(),
       type: "expense",
-      categoryId: null,
+      categoryId: g.categoryId || null,
       name: "Gatekeeper: " + (g.name || ""),
       amount: safeNum(g.price || 0),
       fixed: false
@@ -739,6 +761,7 @@
 
   State.financeEnsureMonth = financeEnsureMonth;
   State.financeDismissReminder = financeDismissReminder;
+  State.financeCloseMonth = financeCloseMonth;
 
   State.financeListFixedItems = financeListFixedItems;
   State.financeAddFixedItem = financeAddFixedItem;
@@ -772,11 +795,10 @@
   State.applyTemplateToDate = applyTemplateToDate;
 
   State.listFinanceCategories = listFinanceCategories;
+  State.getFinanceCategory = getFinanceCategory;
   State.addFinanceCategory = addFinanceCategory;
   State.updateFinanceCategory = updateFinanceCategory;
-  State.deleteFinanceCategory = deleteFinanceDeleteCategory;
-
-  function deleteFinanceDeleteCategory(id){ return deleteFinanceCategory(id); } // keep stable ref if screens cached
+  State.deleteFinanceCategory = deleteFinanceCategory;
 
   State.listTransactionsByMonth = listTransactionsByMonth;
   State.addTransaction = addTransaction;
