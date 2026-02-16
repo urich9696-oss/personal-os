@@ -1,30 +1,20 @@
 // js/screens/dashboard.js
 // PERSONAL OS — Dashboard (Command Engine)
-// Requirements implemented:
-// - Today Snapshot (date, status, performance, next block, budget remaining, gatekeeper counts)
-// - Dynamic Primary Button (status-driven)
-// - Quick Actions (functional):
-//   * Add Calendar Block (inline, no navigation required)
-//   * Add Transaction (opens Finance with add mode)
-//   * Add Gatekeeper Item (inline UI)
-//   * Open Journal (focus Morning)
-// - Dashboard must be reachable anytime via Router "Home" button (handled by Router.js)
+// Anforderungen umgesetzt:
+// A) Today Snapshot: Datum, Status, Performance, Next Block, Budget Remaining, Gatekeeper Counts
+// B) Dynamischer Primary Button (Status-Flow)
+// C) Quick Actions (funktional): Inline Add Block, Add Transaction (Finance), Add Gatekeeper Item (Finance GK), Open Journal (Morning)
+// D) Dashboard erreichbar (Back): Link/Button "Dashboard" wird in Router-Hash unterstützt; zusätzlich Quick Button "Dashboard" ist optional über bottom nav nicht nötig.
 
 ScreenRegistry.register("dashboard", {
   async mount(container, ctx) {
     try {
       container.innerHTML = "";
 
-      // ------- Data Snapshot (single source of truth) -------
       const snap = await State.getTodaySnapshot();
-      const dateKey = snap.date;
+      const today = snap.date;
       const status = snap.status;
-      const perf = snap.performance || { pct: 0, done: 0, total: 0 };
-      const nextBlock = snap.nextBlock;
-      const budget = snap.budget || { income: 0, expense: 0, remaining: 0, remainingPct: 0, spentPct: 0, month: State.getMonthKey(dateKey) };
-      const gk = snap.gatekeeper || { locked: 0, eligible: 0, purchased: 0, total: 0 };
 
-      // ------- Root -------
       const root = document.createElement("div");
       root.className = "dashboard";
 
@@ -35,36 +25,69 @@ ScreenRegistry.register("dashboard", {
         <div class="dash-title">Personal OS</div>
         <div class="dash-sub">The Architecture of Excellence.</div>
       `;
+      root.appendChild(header);
 
-      // ===== TODAY SNAPSHOT CARD =====
+      // ===== TODAY SNAPSHOT =====
       const snapCard = document.createElement("div");
       snapCard.className = "dash-card";
 
-      const nextBlockText = nextBlock
-        ? `${nextBlock.start}–${nextBlock.end} · ${nextBlock.title}`
-        : "Kein weiterer Block heute";
+      const perf = snap.performance || { pct: 0, done: 0, total: 0 };
+      const next = snap.nextBlock;
+      const budget = snap.budget || { income: 0, expense: 0, remaining: 0, remainingPct: 0, spentPct: 0, month: today.slice(0, 7) };
+      const gk = snap.gatekeeper || { locked: 0, eligible: 0, purchased: 0, total: 0 };
 
       snapCard.innerHTML = `
         <div class="dash-meta">Today</div>
-        <div class="dash-date">${dateKey}</div>
-        <div class="dash-status">${String(status).toUpperCase()}</div>
-        <div style="margin-top:12px; font-size:13px; color: rgba(18,18,18,0.78);">
-          <div><strong>Next:</strong> ${escapeHtml(nextBlockText)}</div>
-          <div style="margin-top:6px;"><strong>Budget:</strong> ${formatMoney(budget.remaining)} Remaining (${budget.remainingPct}%)</div>
-          <div style="margin-top:6px;"><strong>Gatekeeper:</strong> Locked ${gk.locked} · Eligible ${gk.eligible}</div>
-        </div>
-      `;
+        <div class="dash-date">${escapeHtml(today)}</div>
+        <div class="dash-status">${escapeHtml(String(status || "").toUpperCase())}</div>
 
-      // ===== PERFORMANCE CARD =====
-      const perfCard = document.createElement("div");
-      perfCard.className = "dash-card";
-      perfCard.innerHTML = `
-        <div class="dash-meta">Performance</div>
-        <div class="dash-value">${Number(perf.pct || 0)}%</div>
-        <div style="font-size:13px; color: rgba(18,18,18,0.70); margin-top:6px;">
-          Done: ${Number(perf.done || 0)} / ${Number(perf.total || 0)}
+        <div style="margin-top:12px; display:flex; gap:12px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:140px;">
+            <div class="dash-meta">Performance</div>
+            <div style="font-size:22px; font-weight:800; margin-top:6px;">${perf.pct}%</div>
+            <div style="font-size:12px; opacity:0.75; margin-top:4px;">${perf.done}/${perf.total} ToDos</div>
+          </div>
+
+          <div style="flex:1; min-width:140px;">
+            <div class="dash-meta">Next Block</div>
+            <div style="font-size:14px; font-weight:800; margin-top:6px;">
+              ${next ? escapeHtml(next.start + "–" + next.end) : "—"}
+            </div>
+            <div style="font-size:12px; opacity:0.75; margin-top:4px;">
+              ${next ? escapeHtml(next.title || "") : "Kein weiterer Block heute"}
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px; display:flex; gap:12px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:140px;">
+            <div class="dash-meta">Budget Remaining (${escapeHtml(budget.month || "")})</div>
+            <div style="font-size:18px; font-weight:900; margin-top:6px;">
+              ${formatMoney(budget.remaining)}
+            </div>
+            <div style="font-size:12px; opacity:0.75; margin-top:4px;">
+              Income ${formatMoney(budget.income)} · Expense ${formatMoney(budget.expense)}
+            </div>
+            <div style="height:10px; background: rgba(18,18,18,0.08); border-radius: 999px; overflow:hidden; margin-top:10px;">
+              <div style="height:10px; width:${clampPct(budget.spentPct)}%; background: rgba(18,18,18,0.35);"></div>
+            </div>
+            <div style="font-size:12px; opacity:0.75; margin-top:6px;">
+              Spent ${clampPct(budget.spentPct)}% · Remaining ${clampPct(budget.remainingPct)}%
+            </div>
+          </div>
+
+          <div style="flex:1; min-width:140px;">
+            <div class="dash-meta">Gatekeeper</div>
+            <div style="font-size:14px; font-weight:900; margin-top:6px;">
+              Eligible: ${Number(gk.eligible || 0)}
+            </div>
+            <div style="font-size:12px; opacity:0.75; margin-top:4px;">
+              Locked: ${Number(gk.locked || 0)} · Purchased: ${Number(gk.purchased || 0)}
+            </div>
+          </div>
         </div>
       `;
+      root.appendChild(snapCard);
 
       // ===== PRIMARY ACTION =====
       const primary = document.createElement("button");
@@ -72,106 +95,150 @@ ScreenRegistry.register("dashboard", {
       primary.id = "primary-action";
 
       if (status === "morning") {
-        primary.innerText = "Start Morning Setup";
-        primary.onclick = () => {
+        primary.textContent = "Start Morning Setup";
+        primary.onclick = function () {
           Router.setParams({ focus: "morning" });
           Router.go("mindset");
         };
       } else if (status === "execution") {
-        primary.innerText = "Go to Execution";
-        primary.onclick = () => Router.go("path");
+        primary.textContent = "Go to Execution";
+        primary.onclick = function () { Router.go("path"); };
       } else if (status === "evening") {
-        primary.innerText = "Start Evening Review";
-        primary.onclick = () => {
+        primary.textContent = "Start Evening Review";
+        primary.onclick = function () {
           Router.setParams({ focus: "evening" });
           Router.go("mindset");
         };
       } else if (status === "closed") {
-        primary.innerText = "View Day Summary";
-        primary.onclick = () => {
-          Router.setParams({ viewVault: true });
-          Router.go("vault");
-        };
+        primary.textContent = "View Day Summary";
+        primary.onclick = function () { Router.go("vault"); };
       } else {
-        primary.innerText = "Open";
-        primary.onclick = () => Router.go("mindset");
+        primary.textContent = "Open Mindset";
+        primary.onclick = function () { Router.go("mindset"); };
       }
 
-      // ===== QUICK ACTIONS =====
-      const quick = document.createElement("div");
-      quick.className = "dash-quick";
+      root.appendChild(primary);
 
+      // ===== QUICK ACTIONS =====
+      const quickRow = document.createElement("div");
+      quickRow.className = "dash-quick";
+
+      // Open Journal (Morning focus)
       const btnJournal = document.createElement("button");
-      btnJournal.innerText = "Open Journal";
-      btnJournal.onclick = () => {
+      btnJournal.type = "button";
+      btnJournal.textContent = "Open Journal";
+      btnJournal.onclick = function () {
         Router.setParams({ focus: "morning" });
         Router.go("mindset");
       };
 
-      const btnAddTxn = document.createElement("button");
-      btnAddTxn.innerText = "Add Transaction";
-      btnAddTxn.onclick = () => {
-        Router.setParams({ mode: "addTxn" });
+      // Add Transaction (Finance)
+      const btnTxn = document.createElement("button");
+      btnTxn.type = "button";
+      btnTxn.textContent = "Add Transaction";
+      btnTxn.onclick = function () {
+        Router.setParams({ focus: "addTransaction" });
         Router.go("finance");
       };
 
-      const btnAddBlock = document.createElement("button");
-      btnAddBlock.innerText = "Add Block";
-      btnAddBlock.onclick = () => toggleInline("block");
+      // Add Gatekeeper Item (Finance GK)
+      const btnGK = document.createElement("button");
+      btnGK.type = "button";
+      btnGK.textContent = "Add Gatekeeper";
+      btnGK.onclick = function () {
+        Router.setParams({ focus: "addGatekeeper" });
+        Router.go("finance");
+      };
 
-      const btnGatekeeper = document.createElement("button");
-      btnGatekeeper.innerText = "Gatekeeper Item";
-      btnGatekeeper.onclick = () => toggleInline("gk");
+      quickRow.appendChild(btnJournal);
+      quickRow.appendChild(btnTxn);
+      quickRow.appendChild(btnGK);
 
-      quick.appendChild(btnJournal);
-      quick.appendChild(btnAddBlock);
-      quick.appendChild(btnAddTxn);
-      quick.appendChild(btnGatekeeper);
+      root.appendChild(quickRow);
 
-      // ===== INLINE PANELS =====
-      const inlineWrap = document.createElement("div");
-      inlineWrap.style.display = "flex";
-      inlineWrap.style.flexDirection = "column";
-      inlineWrap.style.gap = "12px";
+      // ===== INLINE: QUICK ADD BLOCK (Dashboard) =====
+      const blockCard = document.createElement("div");
+      blockCard.className = "dash-card";
+      blockCard.innerHTML = `<div style="font-weight:900; margin-bottom:8px;">Quick Add Block</div>`;
 
-      const inlineBlock = buildInlineAddBlock(dateKey);
-      const inlineGK = await buildInlineGatekeeper(dateKey);
+      const startInput = document.createElement("input");
+      startInput.placeholder = "Start (HH:MM)";
+      startInput.inputMode = "numeric";
 
-      inlineWrap.appendChild(inlineBlock);
-      inlineWrap.appendChild(inlineGK);
+      const endInput = document.createElement("input");
+      endInput.placeholder = "End (HH:MM)";
+      endInput.inputMode = "numeric";
 
-      // initial hidden
-      inlineBlock.style.display = "none";
-      inlineGK.style.display = "none";
+      const titleInput = document.createElement("input");
+      titleInput.placeholder = "Title";
 
-      function toggleInline(which) {
-        if (which === "block") {
-          inlineBlock.style.display = inlineBlock.style.display === "none" ? "block" : "none";
-          inlineGK.style.display = "none";
+      const addBlockBtn = document.createElement("button");
+      addBlockBtn.type = "button";
+      addBlockBtn.textContent = "Add Block";
+
+      const msg = document.createElement("div");
+      msg.style.fontSize = "13px";
+      msg.style.opacity = "0.75";
+      msg.style.marginTop = "8px";
+
+      addBlockBtn.onclick = async function () {
+        msg.textContent = "";
+
+        const s = String(startInput.value || "").trim();
+        const e = String(endInput.value || "").trim();
+        const t = String(titleInput.value || "").trim();
+
+        if (!s || !e || !t) {
+          msg.textContent = "Bitte Start/Ende/Titel ausfüllen.";
+          return;
         }
-        if (which === "gk") {
-          inlineGK.style.display = inlineGK.style.display === "none" ? "block" : "none";
-          inlineBlock.style.display = "none";
-        }
-      }
 
-      // ===== RENDER =====
-      root.appendChild(header);
-      root.appendChild(snapCard);
-      root.appendChild(perfCard);
-      root.appendChild(primary);
-      root.appendChild(quick);
-      root.appendChild(inlineWrap);
+        const id = await State.addBlock({ date: today, start: s, end: e, title: t }).catch(() => null);
+        if (!id) {
+          msg.textContent = "Konnte Block nicht speichern.";
+          return;
+        }
+
+        startInput.value = "";
+        endInput.value = "";
+        titleInput.value = "";
+        msg.textContent = "Block gespeichert.";
+
+        // re-render dashboard to refresh next block snapshot (simple + consistent)
+        Router.go("dashboard");
+      };
+
+      blockCard.appendChild(startInput);
+      blockCard.appendChild(endInput);
+      blockCard.appendChild(titleInput);
+      blockCard.appendChild(addBlockBtn);
+      blockCard.appendChild(msg);
+
+      root.appendChild(blockCard);
 
       container.appendChild(root);
+
     } catch (e) {
       console.error("Dashboard mount error", e);
       container.innerHTML = "<div class='error'>Dashboard failed to load</div>";
     }
 
-    // -----------------------------
-    // Helpers (local to this file)
-    // -----------------------------
+    function clampPct(n) {
+      const x = Number(n || 0);
+      if (x < 0) return 0;
+      if (x > 100) return 100;
+      return Math.round(x);
+    }
+
+    function formatMoney(n) {
+      const v = Number(n || 0);
+      // simple format without Intl to avoid locale surprises; can be replaced later
+      const sign = v < 0 ? "-" : "";
+      const abs = Math.abs(v);
+      const s = abs.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+      return sign + s;
+    }
+
     function escapeHtml(str) {
       return String(str || "")
         .replace(/&/g, "&amp;")
@@ -179,156 +246,6 @@ ScreenRegistry.register("dashboard", {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
-    }
-
-    function formatMoney(n) {
-      const x = Number(n || 0);
-      // Keep it simple: no locale dependencies
-      return (Math.round(x * 100) / 100).toString();
-    }
-
-    function buildInlineAddBlock(dateKey) {
-      const card = document.createElement("div");
-      card.className = "dash-card";
-
-      const h = document.createElement("div");
-      h.style.fontWeight = "800";
-      h.style.marginBottom = "8px";
-      h.textContent = "Quick Add Block";
-      card.appendChild(h);
-
-      const start = document.createElement("input");
-      start.placeholder = "Start (HH:MM)";
-      start.inputMode = "numeric";
-
-      const end = document.createElement("input");
-      end.placeholder = "End (HH:MM)";
-      end.inputMode = "numeric";
-
-      const title = document.createElement("input");
-      title.placeholder = "Title";
-
-      const addBtn = document.createElement("button");
-      addBtn.textContent = "Add Block";
-
-      const msg = document.createElement("div");
-      msg.style.fontSize = "13px";
-      msg.style.opacity = "0.75";
-      msg.style.marginTop = "8px";
-
-      addBtn.onclick = async function () {
-        msg.textContent = "";
-        const s = String(start.value || "").trim();
-        const e = String(end.value || "").trim();
-        const t = String(title.value || "").trim();
-
-        if (!s || !e || !t) {
-          msg.textContent = "Bitte Start/Ende/Titel ausfüllen.";
-          return;
-        }
-
-        const ok = await State.addBlock({ date: dateKey, start: s, end: e, title: t }).then((id) => !!id).catch(() => false);
-        if (!ok) {
-          msg.textContent = "Konnte Block nicht speichern.";
-          return;
-        }
-
-        start.value = "";
-        end.value = "";
-        title.value = "";
-        msg.textContent = "Block gespeichert.";
-
-        // refresh snapshot: simplest -> re-render dashboard
-        try { Router.go("dashboard"); } catch (_) {}
-      };
-
-      card.appendChild(start);
-      card.appendChild(end);
-      card.appendChild(title);
-      card.appendChild(addBtn);
-      card.appendChild(msg);
-
-      return card;
-    }
-
-    async function buildInlineGatekeeper(dateKey) {
-      const card = document.createElement("div");
-      card.className = "dash-card";
-
-      const h = document.createElement("div");
-      h.style.fontWeight = "800";
-      h.style.marginBottom = "8px";
-      h.textContent = "Quick Add Gatekeeper";
-      card.appendChild(h);
-
-      const name = document.createElement("input");
-      name.placeholder = "Item name";
-
-      const price = document.createElement("input");
-      price.placeholder = "Price";
-      price.inputMode = "decimal";
-
-      const catSelect = document.createElement("select");
-      const cats = await State.listFinanceCategories().catch(() => []);
-      const exp = (cats || []).filter((c) => c && c.type === "expense");
-
-      if (exp.length === 0) {
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "Keine Expense Kategorien";
-        catSelect.appendChild(opt);
-      } else {
-        exp.forEach((c) => {
-          const opt = document.createElement("option");
-          opt.value = c.id;
-          opt.textContent = c.name;
-          catSelect.appendChild(opt);
-        });
-      }
-
-      const addBtn = document.createElement("button");
-      addBtn.textContent = "Add Gatekeeper Item";
-
-      const msg = document.createElement("div");
-      msg.style.fontSize = "13px";
-      msg.style.opacity = "0.75";
-      msg.style.marginTop = "8px";
-
-      addBtn.onclick = async function () {
-        msg.textContent = "";
-        const n = String(name.value || "").trim();
-        const p = Number(price.value || 0);
-        const catId = Number(catSelect.value || 0);
-
-        if (!n || !p || !catId) {
-          msg.textContent = "Bitte Name/Preis/Kategorie ausfüllen.";
-          return;
-        }
-
-        const id = await State.addGatekeeperItem({
-          name: n,
-          price: p,
-          categoryId: catId
-        }).catch(() => null);
-
-        if (!id) {
-          msg.textContent = "Konnte Gatekeeper Item nicht speichern.";
-          return;
-        }
-
-        name.value = "";
-        price.value = "";
-        msg.textContent = "Gatekeeper Item gespeichert (72h Lock).";
-        try { Router.go("dashboard"); } catch (_) {}
-      };
-
-      card.appendChild(name);
-      card.appendChild(price);
-      card.appendChild(catSelect);
-      card.appendChild(addBtn);
-      card.appendChild(msg);
-
-      return card;
     }
   }
 });
