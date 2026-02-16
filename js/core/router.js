@@ -1,20 +1,16 @@
 // js/core/router.js
 // PERSONAL OS — Router (no modules, crash-safe, dashboard default)
-// Ziele:
-// - Navigation darf nie sterben (auch bei Screen-Crash)
-// - Dashboard ist Startscreen (kein Tab)
-// - Deep-Link Parameter: setParam/getParam/clearParams + setParams(obj)
-// - On-Screen Error Boundary (Router rendert immer etwas)
-// - (Optional) History via location.hash (#/screen) — iOS/GH-Pages safe
+// Updates in dieser Version:
+// - Dispatch Event "personalos:navigated" nach erfolgreicher Navigation (für Tab-Sync)
+// - Optional: Hash Deep-Linking (#/screen?key=value) ohne App-Crash
+// - Never-white: renderErrorScreen als letzte Instanz
+// - Params: setParam/getParam/clearParams (runtime, one-shot möglich)
+// - Dashboard ist Startscreen (nicht Tab)
 
 (function () {
   "use strict";
 
   window.PersonalOS = window.PersonalOS || {};
-
-  // -----------------------------
-  // Registry guarantee
-  // -----------------------------
 
   function ensureRegistry() {
     var reg = window.ScreenRegistry || window.PersonalOS.ScreenRegistry || null;
@@ -42,41 +38,23 @@
     return reg;
   }
 
-  // -----------------------------
-  // Params
-  // -----------------------------
-
   var _params = {};
-  var _current = "dashboard";
-  var _lastNonDashboard = "mindset";
+  var _current = null;
 
   function setParam(key, value) {
     try { _params[key] = value; } catch (_) {}
-  }
-
-  function setParams(obj) {
-    try {
-      if (!obj) return;
-      for (var k in obj) {
-        if (Object.prototype.hasOwnProperty.call(obj, k)) _params[k] = obj[k];
-      }
-    } catch (_) {}
   }
 
   function getParam(key) {
     try { return _params[key]; } catch (_) { return undefined; }
   }
 
-  function clearParams() { _params = {}; }
-
-  // -----------------------------
-  // Rendering helpers
-  // -----------------------------
-
-  function getHost() { return document.getElementById("app-content"); }
+  function clearParams() {
+    _params = {};
+  }
 
   function mountIntoAppContent(htmlOrNode) {
-    var host = getHost();
+    var host = document.getElementById("app-content");
     if (!host) return;
 
     host.innerHTML = "";
@@ -91,131 +69,85 @@
     }
   }
 
-  function renderErrorScreen(title, details, meta) {
+  function renderErrorScreen(title, details) {
     var wrap = document.createElement("div");
     wrap.className = "error";
+    wrap.innerHTML =
+      "<div style='font-weight:900; margin-bottom:6px;'>" + escapeHtml(title || "Error") + "</div>" +
+      "<div style='opacity:0.85; font-size:13px;'>" + escapeHtml(details || "Unknown") + "</div>";
 
-    var t = document.createElement("div");
-    t.style.fontWeight = "800";
-    t.style.marginBottom = "6px";
-    t.textContent = title || "Error";
-
-    var d = document.createElement("div");
-    d.style.opacity = "0.85";
-    d.style.fontSize = "14px";
-    d.textContent = details || "Unknown";
-
-    wrap.appendChild(t);
-    wrap.appendChild(d);
-
-    if (meta) {
-      var m = document.createElement("div");
-      m.style.opacity = "0.65";
-      m.style.fontSize = "12px";
-      m.style.marginTop = "10px";
-      m.textContent = String(meta);
-      wrap.appendChild(m);
-    }
-
-    // Minimal recovery actions (navigation must survive)
-    var actions = document.createElement("div");
-    actions.style.display = "flex";
-    actions.style.gap = "10px";
-    actions.style.marginTop = "12px";
-
-    var b1 = document.createElement("button");
-    b1.type = "button";
-    b1.textContent = "Go Dashboard";
-    b1.onclick = function () { safeGo("dashboard"); };
-
-    var b2 = document.createElement("button");
-    b2.type = "button";
-    b2.textContent = "Go Last Screen";
-    b2.onclick = function () { safeGo(_lastNonDashboard || "mindset"); };
-
-    actions.appendChild(b1);
-    actions.appendChild(b2);
-
-    // Note: use same button styling as screens
-    wrap.appendChild(actions);
+    // Optional debug extras
+    try {
+      var dbg = window.PersonalOS && window.PersonalOS.debug;
+      if (dbg) {
+        var extra = document.createElement("div");
+        extra.style.marginTop = "10px";
+        extra.style.fontSize = "12px";
+        extra.style.opacity = "0.75";
+        extra.textContent = "Router current=" + String(_current || "") + " · screens=" + (ensureRegistry().list().join(", "));
+        wrap.appendChild(extra);
+      }
+    } catch (_) {}
 
     mountIntoAppContent(wrap);
   }
 
-  // -----------------------------
-  // Hash routing (optional but useful)
-  // -----------------------------
-
-  function _screenToHash(name) {
-    return "#/" + encodeURIComponent(String(name || "dashboard"));
-  }
-
-  function _hashToScreen(hash) {
+  function dispatchNavigated(screenName) {
     try {
-      var h = String(hash || location.hash || "");
-      if (!h || h.indexOf("#/") !== 0) return null;
-      var name = decodeURIComponent(h.slice(2));
-      return name || null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function _setHashSilently(name) {
-    try {
-      var target = _screenToHash(name);
-      if (location.hash !== target) location.hash = target;
+      var ev = new CustomEvent("personalos:navigated", {
+        detail: { screen: String(screenName || ""), params: shallowCopy(_params) }
+      });
+      window.dispatchEvent(ev);
     } catch (_) {}
   }
 
-  // -----------------------------
-  // Core navigation
-  // -----------------------------
-
-  async function safeGo(screenName) {
-    try { await go(screenName, { fromHash: false }); } catch (_) {}
+  function shallowCopy(obj) {
+    var out = {};
+    try {
+      for (var k in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
+      }
+    } catch (_) {}
+    return out;
   }
 
-  async function go(screenName, opts) {
+  async function go(screenName) {
     var reg = ensureRegistry();
 
     try {
-      var next = String(screenName || "");
-      if (!next) next = "dashboard";
+      _current = String(screenName || "");
 
-      _current = next;
-      if (next !== "dashboard") _lastNonDashboard = next;
+      var def = reg.get(_current);
 
-      // Write hash for back behavior (iOS can use it)
-      if (!opts || !opts.fromHash) _setHashSilently(next);
-
-      var def = reg.get(next);
       if (!def || typeof def.mount !== "function") {
-        renderErrorScreen("Screen not found", next, "Registry: " + reg.list().join(", "));
+        renderErrorScreen("Screen not found", _current);
+        dispatchNavigated(_current);
+        syncHash(_current);
         return;
       }
 
-      var host = getHost();
+      var host = document.getElementById("app-content");
       if (!host) {
         renderErrorScreen("Host missing", "#app-content not found");
+        dispatchNavigated(_current);
+        syncHash(_current);
         return;
       }
 
-      // Always attempt mount; a crashing screen must not kill navigation.
+      // Allow mount every time (stable)
       await def.mount(host, { params: _params });
 
-      // Emit event for UI syncing (tabs highlight, etc.)
-      try {
-        window.dispatchEvent(new CustomEvent("personalos:navigated", { detail: { screen: next } }));
-      } catch (_) {}
+      // Success: dispatch navigation event
+      dispatchNavigated(_current);
+
+      // Keep hash synced (deep link)
+      syncHash(_current);
 
     } catch (e) {
       console.error("Router.go failed", e);
-      renderErrorScreen(
-        "Navigation error",
-        (e && e.message) ? e.message : String(e),
-        "Target: " + String(screenName || "")
-      );
+      renderErrorScreen("Navigation error", (e && e.message) ? e.message : String(e));
+      dispatchNavigated(String(screenName || ""));
+      syncHash(String(screenName || ""));
     }
   }
 
@@ -223,22 +155,21 @@
     try {
       ensureRegistry();
 
-      // If hash exists, try that first; else dashboard
-      var hashed = _hashToScreen(location.hash);
-      if (hashed) {
-        go(hashed, { fromHash: true });
-      } else {
-        go("dashboard", { fromHash: true });
+      // If URL contains hash deep link, respect it once
+      var start = parseHash();
+      if (start && start.screen) {
+        // Apply params from hash (one-shot)
+        if (start.params) {
+          for (var k in start.params) {
+            if (Object.prototype.hasOwnProperty.call(start.params, k)) _params[k] = start.params[k];
+          }
+        }
+        go(start.screen);
+        return;
       }
 
-      // Handle back/forward via hash changes
-      window.addEventListener("hashchange", function () {
-        try {
-          var s = _hashToScreen(location.hash);
-          if (!s) return;
-          go(s, { fromHash: true });
-        } catch (_) {}
-      });
+      // Always start on dashboard
+      go("dashboard");
 
     } catch (e) {
       console.error("Router.init failed", e);
@@ -246,23 +177,67 @@
     }
   }
 
-  // -----------------------------
-  // Public API
-  // -----------------------------
+  // ===== Hash Deep-Linking (#/screen?key=value) =====
+  function parseHash() {
+    try {
+      var h = String(location.hash || "");
+      // supported formats: "#/mindset" or "#/vault?dayKey=2026-02-16"
+      if (!h || h.length < 3) return null;
+      if (h.indexOf("#/") !== 0) return null;
+
+      var rest = h.slice(2); // "/screen?..."
+      if (rest.indexOf("/") === 0) rest = rest.slice(1);
+
+      var parts = rest.split("?");
+      var screen = decodeURIComponent(parts[0] || "");
+      if (!screen) return null;
+
+      var params = {};
+      if (parts[1]) {
+        var qs = parts[1].split("&");
+        for (var i = 0; i < qs.length; i++) {
+          var kv = qs[i].split("=");
+          var key = decodeURIComponent(kv[0] || "");
+          var val = decodeURIComponent(kv[1] || "");
+          if (key) params[key] = val;
+        }
+      }
+
+      return { screen: screen, params: params };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function syncHash(screenName) {
+    try {
+      // Keep it minimal: only screen name, no params (params are runtime-only by design)
+      var s = String(screenName || "");
+      if (!s) return;
+
+      var newHash = "#/" + encodeURIComponent(s);
+      if (location.hash !== newHash) {
+        // replaceState avoids piling history entries
+        history.replaceState(null, "", newHash);
+      }
+    } catch (_) {}
+  }
+
+  function escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
 
   window.Router = {
     init: init,
     go: go,
-    safeGo: safeGo,
-
     setParam: setParam,
-    setParams: setParams,
     getParam: getParam,
-    clearParams: clearParams,
-
-    // Debug/introspection
-    getCurrent: function () { return _current; },
-    getLastNonDashboard: function () { return _lastNonDashboard; }
+    clearParams: clearParams
   };
 
   window.PersonalOS.Router = window.Router;
