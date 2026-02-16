@@ -9,7 +9,10 @@
   var State = {};
 
   var DB_NAME = "personalOS";
-  var DB_VERSION = 1;
+  // IMPORTANT:
+  // Bump high to avoid "lower version than existing version" during development iterations.
+  // In production you increase this step-by-step. For now, we stabilize.
+  var DB_VERSION = 99;
 
   function nowISO() {
     return new Date().toISOString();
@@ -20,80 +23,105 @@
   }
 
   function monthKeyFromDateISO(dateISO) {
-    // "YYYY-MM-DD" -> "YYYY-MM"
     if (!dateISO || dateISO.length < 7) return UI.formatDateISO(new Date()).slice(0, 7);
     return dateISO.slice(0, 7);
   }
 
   function upgrade(db, tx, oldVersion, newVersion) {
-    // Version 1: create all final stores + indexes
-    if (oldVersion < 1) {
-      // settings (key: "main")
-      if (!db.objectStoreNames.contains("settings")) {
-        db.createObjectStore("settings", { keyPath: "key" });
-      }
+    // Create missing stores safely (idempotent)
+    // We don't rely on exact oldVersion numbers here; we ensure final schema exists.
 
-      // journalEntries (key: date "YYYY-MM-DD")
-      if (!db.objectStoreNames.contains("journalEntries")) {
-        db.createObjectStore("journalEntries", { keyPath: "date" });
-      }
+    // settings (key: "main")
+    if (!db.objectStoreNames.contains("settings")) {
+      db.createObjectStore("settings", { keyPath: "key" });
+    }
 
-      // calendarBlocks (autoIncrement id)
-      if (!db.objectStoreNames.contains("calendarBlocks")) {
-        var sBlocks = db.createObjectStore("calendarBlocks", { keyPath: "id", autoIncrement: true });
-        sBlocks.createIndex("date", "date", { unique: false });
-      }
+    // journalEntries (key: date "YYYY-MM-DD")
+    if (!db.objectStoreNames.contains("journalEntries")) {
+      db.createObjectStore("journalEntries", { keyPath: "date" });
+    }
 
-      // dayTemplates (autoIncrement id)
-      if (!db.objectStoreNames.contains("dayTemplates")) {
-        db.createObjectStore("dayTemplates", { keyPath: "id", autoIncrement: true });
-      }
+    // calendarBlocks (autoIncrement id)
+    if (!db.objectStoreNames.contains("calendarBlocks")) {
+      var sBlocks = db.createObjectStore("calendarBlocks", { keyPath: "id", autoIncrement: true });
+      sBlocks.createIndex("date", "date", { unique: false });
+    } else {
+      // Ensure index exists
+      try {
+        var exBlocks = tx.objectStore("calendarBlocks");
+        if (!exBlocks.indexNames.contains("date")) exBlocks.createIndex("date", "date", { unique: false });
+      } catch (e) {}
+    }
 
-      // financeCategories (autoIncrement id)
-      if (!db.objectStoreNames.contains("financeCategories")) {
-        var sCat = db.createObjectStore("financeCategories", { keyPath: "id", autoIncrement: true });
-        sCat.createIndex("type", "type", { unique: false });
-        sCat.createIndex("order", "order", { unique: false });
-      }
+    // dayTemplates (autoIncrement id)
+    if (!db.objectStoreNames.contains("dayTemplates")) {
+      db.createObjectStore("dayTemplates", { keyPath: "id", autoIncrement: true });
+    }
 
-      // financeTransactions (autoIncrement id)
-      if (!db.objectStoreNames.contains("financeTransactions")) {
-        var sTx = db.createObjectStore("financeTransactions", { keyPath: "id", autoIncrement: true });
-        sTx.createIndex("month", "month", { unique: false });
-        sTx.createIndex("date", "date", { unique: false });
-        sTx.createIndex("type", "type", { unique: false });
-        sTx.createIndex("categoryId", "categoryId", { unique: false });
-      }
+    // financeCategories (autoIncrement id)
+    if (!db.objectStoreNames.contains("financeCategories")) {
+      var sCat = db.createObjectStore("financeCategories", { keyPath: "id", autoIncrement: true });
+      sCat.createIndex("type", "type", { unique: false });
+      sCat.createIndex("order", "order", { unique: false });
+    } else {
+      try {
+        var exCat = tx.objectStore("financeCategories");
+        if (!exCat.indexNames.contains("type")) exCat.createIndex("type", "type", { unique: false });
+        if (!exCat.indexNames.contains("order")) exCat.createIndex("order", "order", { unique: false });
+      } catch (e) {}
+    }
 
-      // gatekeeperItems (autoIncrement id)
-      if (!db.objectStoreNames.contains("gatekeeperItems")) {
-        var sGk = db.createObjectStore("gatekeeperItems", { keyPath: "id", autoIncrement: true });
-        sGk.createIndex("status", "status", { unique: false });
-        sGk.createIndex("unlockAt", "unlockAt", { unique: false });
-        sGk.createIndex("createdAt", "createdAt", { unique: false });
-      }
+    // financeTransactions (autoIncrement id)
+    if (!db.objectStoreNames.contains("financeTransactions")) {
+      var sTx = db.createObjectStore("financeTransactions", { keyPath: "id", autoIncrement: true });
+      sTx.createIndex("month", "month", { unique: false });
+      sTx.createIndex("date", "date", { unique: false });
+      sTx.createIndex("type", "type", { unique: false });
+      sTx.createIndex("categoryId", "categoryId", { unique: false });
+    } else {
+      try {
+        var exTx = tx.objectStore("financeTransactions");
+        if (!exTx.indexNames.contains("month")) exTx.createIndex("month", "month", { unique: false });
+        if (!exTx.indexNames.contains("date")) exTx.createIndex("date", "date", { unique: false });
+        if (!exTx.indexNames.contains("type")) exTx.createIndex("type", "type", { unique: false });
+        if (!exTx.indexNames.contains("categoryId")) exTx.createIndex("categoryId", "categoryId", { unique: false });
+      } catch (e) {}
+    }
 
-      // vaultEntries (key: dayKey)
-      if (!db.objectStoreNames.contains("vaultEntries")) {
-        db.createObjectStore("vaultEntries", { keyPath: "dayKey" });
-      }
+    // gatekeeperItems (autoIncrement id)
+    if (!db.objectStoreNames.contains("gatekeeperItems")) {
+      var sGk = db.createObjectStore("gatekeeperItems", { keyPath: "id", autoIncrement: true });
+      sGk.createIndex("status", "status", { unique: false });
+      sGk.createIndex("unlockAt", "unlockAt", { unique: false });
+      sGk.createIndex("createdAt", "createdAt", { unique: false });
+    } else {
+      try {
+        var exGk = tx.objectStore("gatekeeperItems");
+        if (!exGk.indexNames.contains("status")) exGk.createIndex("status", "status", { unique: false });
+        if (!exGk.indexNames.contains("unlockAt")) exGk.createIndex("unlockAt", "unlockAt", { unique: false });
+        if (!exGk.indexNames.contains("createdAt")) exGk.createIndex("createdAt", "createdAt", { unique: false });
+      } catch (e) {}
+    }
 
-      // maintenanceEssentials (key: "main")
-      if (!db.objectStoreNames.contains("maintenanceEssentials")) {
-        db.createObjectStore("maintenanceEssentials", { keyPath: "key" });
-      }
+    // vaultEntries (key: dayKey)
+    if (!db.objectStoreNames.contains("vaultEntries")) {
+      db.createObjectStore("vaultEntries", { keyPath: "dayKey" });
+    }
 
-      // maintenanceRoutines (key: "main")
-      if (!db.objectStoreNames.contains("maintenanceRoutines")) {
-        db.createObjectStore("maintenanceRoutines", { keyPath: "key" });
-      }
+    // maintenanceEssentials (key: "main")
+    if (!db.objectStoreNames.contains("maintenanceEssentials")) {
+      db.createObjectStore("maintenanceEssentials", { keyPath: "key" });
+    }
+
+    // maintenanceRoutines (key: "main")
+    if (!db.objectStoreNames.contains("maintenanceRoutines")) {
+      db.createObjectStore("maintenanceRoutines", { keyPath: "key" });
     }
   }
 
   async function init() {
     await DB.init(DB_NAME, DB_VERSION, upgrade);
 
-    // Ensure base docs exist
     await ensureMainSettings();
     await ensureMaintenanceDefaults();
     await ensureFinanceDefaults();
@@ -107,18 +135,10 @@
 
     var base = {
       key: "main",
-      app: {
-        name: "PERSONAL OS",
-        slogan: "The Architecture of Excellence."
-      },
-      version: {
-        db: DB_VERSION,
-        app: "0.1.0"
-      },
+      app: { name: "PERSONAL OS", slogan: "The Architecture of Excellence." },
+      version: { db: DB_VERSION, app: "0.1.0" },
       createdAt: nowISO(),
-      debug: {
-        enabled: false
-      }
+      debug: { enabled: false }
     };
     await DB.put("settings", base);
     return base;
@@ -127,52 +147,31 @@
   async function ensureMaintenanceDefaults() {
     var e = await DB.get("maintenanceEssentials", "main");
     if (!e) {
-      await DB.put("maintenanceEssentials", {
-        key: "main",
-        categories: [] // {id, name, items:[{id,name,price,frequency,usage,imageDataUrl?}]}
-      });
+      await DB.put("maintenanceEssentials", { key: "main", categories: [] });
     }
     var r = await DB.get("maintenanceRoutines", "main");
     if (!r) {
-      await DB.put("maintenanceRoutines", {
-        key: "main",
-        categories: [] // {id, name, checklists:[{id,name,items:[{id,text,done}]}]}
-      });
+      await DB.put("maintenanceRoutines", { key: "main", categories: [] });
     }
   }
 
   async function ensureFinanceDefaults() {
-    // Create minimal categories if none exist
     var cats = await DB.getAll("financeCategories");
     if (cats && cats.length) return;
 
-    // Base categories (minimal, user can edit later)
     await DB.add("financeCategories", { type: "income", name: "Income", order: 1 });
     await DB.add("financeCategories", { type: "expense", name: "Expense", order: 2 });
     await DB.add("financeCategories", { type: "gatekeeper", name: "Gatekeeper", order: 3 });
   }
 
   async function ensureTodayState() {
-    // Ensure today's journal entry exists (empty default)
     var dk = todayKey();
     var j = await DB.get("journalEntries", dk);
     if (!j) {
       await DB.put("journalEntries", {
         date: dk,
-        morning: {
-          todos: [], // [{id,text,done,scheduledTime? "HH:MM"}]
-          notes: ""
-        },
-        evening: {
-          answers: {
-            q1: "",
-            q2: "",
-            q3: "",
-            q4: ""
-          },
-          notes: "",
-          completedAt: null
-        },
+        morning: { todos: [], notes: "" },
+        evening: { answers: { q1: "", q2: "", q3: "", q4: "" }, notes: "", completedAt: null },
         createdAt: nowISO(),
         updatedAt: nowISO()
       });
@@ -188,7 +187,6 @@
   async function updateSettings(patch) {
     var s = await getSettings();
     if (!s) s = await ensureMainSettings();
-    // shallow merge
     for (var k in patch) {
       if (Object.prototype.hasOwnProperty.call(patch, k)) s[k] = patch[k];
     }
@@ -208,9 +206,7 @@
   }
 
   async function saveJournal(date, journalObj) {
-    if (!journalObj || !journalObj.date) {
-      throw new Error("saveJournal: journalObj.date missing");
-    }
+    if (!journalObj || !journalObj.date) throw new Error("saveJournal: journalObj.date missing");
     journalObj.updatedAt = nowISO();
     await DB.put("journalEntries", journalObj);
     return journalObj;
@@ -236,7 +232,6 @@
     j.updatedAt = nowISO();
     await DB.put("journalEntries", j);
 
-    // Create vault snapshot
     await snapshotToVault(d);
     return j;
   }
@@ -246,19 +241,12 @@
     var d = dayKey || todayKey();
     var j = await DB.get("journalEntries", d);
 
-    var payload = {
-      dayKey: d,
-      createdAt: nowISO(),
-      journal: j || null
-      // In later batches we will include calendar blocks + finance report snapshot
-    };
-
+    var payload = { dayKey: d, createdAt: nowISO(), journal: j || null };
     await DB.put("vaultEntries", payload);
     return payload;
   }
 
   async function listVault() {
-    // returns all vault entries sorted by dayKey desc
     var all = await DB.getAll("vaultEntries");
     all.sort(function (a, b) {
       if (a.dayKey < b.dayKey) return 1;
@@ -276,21 +264,13 @@
   async function listBlocksByDate(dateISO) {
     var q = DB.makeRangeOnly(dateISO);
     var rows = await DB.getAllByIndex("calendarBlocks", "date", q);
-    rows.sort(function (a, b) {
-      return String(a.start || "").localeCompare(String(b.start || ""));
-    });
+    rows.sort(function (a, b) { return String(a.start || "").localeCompare(String(b.start || "")); });
     return rows;
   }
 
   async function addBlock(block) {
-    // {date,start,end,title}
     if (!block || !block.date) throw new Error("addBlock: date missing");
-    var b = {
-      date: block.date,
-      start: block.start || "",
-      end: block.end || "",
-      title: block.title || ""
-    };
+    var b = { date: block.date, start: block.start || "", end: block.end || "", title: block.title || "" };
     var id = await DB.add("calendarBlocks", b);
     b.id = id;
     return b;
@@ -312,10 +292,7 @@
   }
 
   async function createTemplate(name, blocksArray) {
-    var t = {
-      name: name || "Template",
-      blocks: Array.isArray(blocksArray) ? blocksArray : []
-    };
+    var t = { name: name || "Template", blocks: Array.isArray(blocksArray) ? blocksArray : [] };
     var id = await DB.add("dayTemplates", t);
     t.id = id;
     return t;
@@ -341,12 +318,7 @@
 
     var blocks = Array.isArray(t.blocks) ? t.blocks : [];
     for (var j = 0; j < blocks.length; j++) {
-      await addBlock({
-        date: dateISO,
-        start: blocks[j].start || "",
-        end: blocks[j].end || "",
-        title: blocks[j].title || ""
-      });
+      await addBlock({ date: dateISO, start: blocks[j].start || "", end: blocks[j].end || "", title: blocks[j].title || "" });
     }
     return true;
   }
@@ -360,11 +332,7 @@
   }
 
   async function addFinanceCategory(cat) {
-    var c = {
-      type: cat.type || "expense",
-      name: cat.name || "Category",
-      order: typeof cat.order === "number" ? cat.order : 999
-    };
+    var c = { type: cat.type || "expense", name: cat.name || "Category", order: typeof cat.order === "number" ? cat.order : 999 };
     var id = await DB.add("financeCategories", c);
     c.id = id;
     return c;
@@ -384,14 +352,11 @@
     var m = month || monthKeyFromDateISO(todayKey());
     var q = DB.makeRangeOnly(m);
     var rows = await DB.getAllByIndex("financeTransactions", "month", q);
-    rows.sort(function (a, b) {
-      return String(a.date || "").localeCompare(String(b.date || ""));
-    });
+    rows.sort(function (a, b) { return String(a.date || "").localeCompare(String(b.date || "")); });
     return rows;
   }
 
   async function addTransaction(txn) {
-    // {month,date,type,categoryId,name?,amount,fixed?}
     if (!txn) throw new Error("addTransaction: missing txn");
     var date = txn.date || todayKey();
     var t = {
@@ -420,7 +385,6 @@
 
   // Gatekeeper
   async function addGatekeeper(item) {
-    // {name,price,categoryId,createdAt,unlockAt,status,purchasedAt?}
     var createdAt = item.createdAt || nowISO();
     var unlockAt = item.unlockAt || new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
     var g = {
@@ -429,7 +393,7 @@
       categoryId: item.categoryId || null,
       createdAt: createdAt,
       unlockAt: unlockAt,
-      status: item.status || "locked", // locked|eligible|purchased|cancelled
+      status: item.status || "locked",
       purchasedAt: item.purchasedAt || null
     };
     var id = await DB.add("gatekeeperItems", g);
@@ -440,9 +404,7 @@
   async function listGatekeepers(status) {
     var all = await DB.getAll("gatekeeperItems");
     if (status) all = all.filter(function (g) { return g.status === status; });
-    all.sort(function (a, b) {
-      return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
-    });
+    all.sort(function (a, b) { return String(b.createdAt || "").localeCompare(String(a.createdAt || "")); });
     return all;
   }
 
@@ -459,11 +421,11 @@
       if (all[i].id === id) { g = all[i]; break; }
     }
     if (!g) throw new Error("markGatekeeperPurchased: not found");
+
     g.status = "purchased";
     g.purchasedAt = purchaseDateISO || nowISO();
     await DB.put("gatekeeperItems", g);
 
-    // Create expense transaction automatically
     await addTransaction({
       date: todayKey(),
       type: "expense",
@@ -499,7 +461,6 @@
 
   // ---------- Backup / Reset ----------
   async function exportBackup() {
-    // Full JSON snapshot (all stores)
     var stores = [
       "settings",
       "journalEntries",
@@ -514,33 +475,23 @@
     ];
 
     var out = { meta: { exportedAt: nowISO(), dbName: DB_NAME, dbVersion: DB_VERSION }, data: {} };
-
-    for (var i = 0; i < stores.length; i++) {
-      out.data[stores[i]] = await DB.getAll(stores[i]);
-    }
+    for (var i = 0; i < stores.length; i++) out.data[stores[i]] = await DB.getAll(stores[i]);
     return out;
   }
 
   async function hardReset() {
     await DB.destroyDatabase(DB_NAME);
-    // After deletion, caller should reload; on next init DB recreates
     return true;
   }
 
   async function softResetTodayOnly() {
     var dk = todayKey();
-    // Remove today's journal + today's blocks (by date) only
     await DB.del("journalEntries", dk);
 
-    // Delete blocks by date: iterate all blocks of date and delete by id
     var blocks = await listBlocksByDate(dk);
-    for (var i = 0; i < blocks.length; i++) {
-      await deleteBlock(blocks[i].id);
-    }
-    // Vault entry for today
-    await DB.del("vaultEntries", dk);
+    for (var i = 0; i < blocks.length; i++) await deleteBlock(blocks[i].id);
 
-    // Re-create default journal for today
+    await DB.del("vaultEntries", dk);
     await ensureTodayState();
     return true;
   }
