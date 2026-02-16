@@ -1,44 +1,64 @@
 // js/core/registry.js
-// PERSONAL OS — Screen Registry (no modules, global, defensive)
+// PERSONAL OS — Screen Registry (global, crash-safe)
+// - No modules
+// - Provides window.ScreenRegistry + window.PersonalOS.ScreenRegistry
+// - Idempotent (safe if loaded multiple times)
 
 (function () {
   "use strict";
 
-  var ScreenRegistry = (function () {
-    var _screens = {};
+  window.PersonalOS = window.PersonalOS || {};
 
-    function register(name, screenObj) {
+  // If already present, keep it (avoid overwriting)
+  if (window.ScreenRegistry && typeof window.ScreenRegistry.register === "function") {
+    window.PersonalOS.ScreenRegistry = window.ScreenRegistry;
+    return;
+  }
+
+  var _screens = {};
+  var _mounted = {};
+
+  var reg = {
+    register: function (name, def) {
       try {
         var key = String(name || "").trim();
         if (!key) return false;
-        if (!screenObj || typeof screenObj.mount !== "function") return false;
-        _screens[key] = screenObj;
+        _screens[key] = def || {};
         return true;
       } catch (_) {
         return false;
       }
-    }
+    },
 
-    function get(name) {
+    get: function (name) {
       try {
         var key = String(name || "").trim();
         return _screens[key] || null;
       } catch (_) {
         return null;
       }
-    }
+    },
 
-    function list() {
+    isMounted: function (name) {
+      try { return !!_mounted[String(name || "")]; } catch (_) { return false; }
+    },
+
+    markMounted: function (name) {
+      try { _mounted[String(name || "")] = true; } catch (_) {}
+    },
+
+    resetMounted: function (name) {
       try {
-        return Object.keys(_screens);
-      } catch (_) {
-        return [];
-      }
+        if (name) delete _mounted[String(name || "")];
+        else _mounted = {};
+      } catch (_) {}
+    },
+
+    list: function () {
+      try { return Object.keys(_screens); } catch (_) { return []; }
     }
+  };
 
-    return { register: register, get: get, list: list };
-  })();
-
-  try { window.ScreenRegistry = ScreenRegistry; } catch (_) {}
-  try { if (typeof globalThis !== "undefined") globalThis.ScreenRegistry = ScreenRegistry; } catch (_) {}
+  window.ScreenRegistry = reg;
+  window.PersonalOS.ScreenRegistry = reg;
 })();
