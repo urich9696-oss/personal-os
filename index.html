@@ -1,22 +1,10 @@
-<!-- index.html (FINAL, copy-paste)
-     PERSONAL OS — iOS PWA (Vanilla) — Stabilized Shell + On-Screen Diagnostics
-     Wichtige Punkte:
-     - GH Pages Subpath safe (relative paths)
-     - Keine ES-Module
-     - On-screen Diagnostik für Safari (State missing Ursache A vs B)
-     - Auto-Retry für state.js mit Cache-Bust (behebt stale SW/Cache in vielen Fällen)
--->
 <!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Personal OS</title>
 
-  <!-- PWA / iOS -->
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#F6F5F2" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -29,24 +17,20 @@
 
 <body>
   <div class="app-shell">
-    <!-- App content root: Router mounts screens here -->
     <main id="app-content" class="app-content" aria-label="App content">
-      <!-- Default visible loader -->
       <div class="dash-card" style="margin-top: 12px;">
         <div style="font-weight:900;">Loading…</div>
         <div style="font-size:13px; opacity:0.75; margin-top:6px;">
-          Wenn dieser Screen hängen bleibt: Service Worker Cache löschen (System → Clear Cache) oder Hard Reload.
+          Wenn dieser Screen hängen bleibt: SW kill switch via <b>?nosw=1</b> nutzen.
         </div>
       </div>
 
-      <!-- On-screen diagnostics (hidden unless error) -->
       <div id="diag-card" class="dash-card" style="margin-top: 12px; border: 1px solid rgba(160, 60, 60, 0.25); display:none;">
         <div style="font-weight:900; color:#7a1f1f;">Diagnostics</div>
         <pre id="diag-log" style="white-space:pre-wrap; font-size:12px; opacity:0.85; margin-top:8px;"></pre>
       </div>
     </main>
 
-    <!-- Bottom navigation: Dashboard is NOT a tab -->
     <nav class="bottom-nav" aria-label="Bottom navigation">
       <button class="nav-btn" type="button" data-target="mindset" aria-label="Mindset">
         <span class="nav-icon">◻︎</span>
@@ -70,168 +54,139 @@
     </nav>
   </div>
 
-  <!-- ===== On-screen resource + runtime diagnostics (NO DevTools) ===== -->
+  <!-- ===== P0: SW kill switch + on-screen diagnostics (no DevTools) ===== -->
   <script>
     (function () {
       "use strict";
+
+      var VERSION = "2026-02-16-01"; // bump this when deploying
 
       var diagCard = null;
       var diagLog = null;
       var lines = [];
       var startedAt = Date.now();
-      var retriedState = false;
 
       function $(id) { try { return document.getElementById(id); } catch (_) { return null; } }
-
       function showDiag() {
         if (!diagCard) diagCard = $("diag-card");
         if (!diagLog) diagLog = $("diag-log");
         if (diagCard) diagCard.style.display = "block";
         if (diagLog) diagLog.textContent = lines.join("\n");
       }
+      function log(line) { lines.push(line); showDiag(); }
+      function safeStr(v) { try { return String(v); } catch (_) { return "[unprintable]"; } }
 
-      function log(line) {
-        lines.push(line);
-        showDiag();
+      function postCheck(label) {
+        var ms = Date.now() - startedAt;
+        var tState = "throws";
+        var tWinState = "throws";
+        try { tState = (typeof State); } catch (_) {}
+        try { tWinState = (typeof window.State); } catch (_) {}
+        log(label + " @+" + ms + "ms");
+        log("VERSION = " + VERSION);
+        log("href = " + safeStr(location.href));
+        log("typeof State = " + tState);
+        log("typeof window.State = " + tWinState);
       }
 
-      function safeStr(v) {
-        try { return String(v); } catch (_) { return "[unprintable]"; }
-      }
-
-      // Capture script/resource load errors (e.g. 404 state.js)
       window.addEventListener("error", function (ev) {
         try {
-          // Resource errors: ev.target.src exists
           var t = ev && ev.target;
           var src = t && t.tagName === "SCRIPT" ? t.src : null;
-          if (src) {
-            log("RESOURCE ERROR: failed to load <script>: " + src);
-          } else {
-            // Runtime errors
-            var msg = ev && ev.message ? ev.message : "(no message)";
-            var file = ev && ev.filename ? ev.filename : "(no file)";
-            var ln = ev && ev.lineno ? ev.lineno : "(no line)";
-            log("RUNTIME ERROR: " + safeStr(msg) + " @ " + safeStr(file) + ":" + safeStr(ln));
-          }
+          if (src) log("RESOURCE ERROR: failed to load <script>: " + src);
+          else log("RUNTIME ERROR: " + safeStr(ev && ev.message) + " @ " + safeStr(ev && ev.filename) + ":" + safeStr(ev && ev.lineno));
         } catch (_) {}
       }, true);
 
       window.addEventListener("unhandledrejection", function (ev) {
-        try {
-          var r = ev && ev.reason ? ev.reason : "(no reason)";
-          log("UNHANDLED PROMISE: " + safeStr(r));
-        } catch (_) {}
+        try { log("UNHANDLED PROMISE: " + safeStr(ev && ev.reason)); } catch (_) {}
       });
 
-      function hasState() {
+      async function killSWAndCaches() {
+        log("SW-KILL: requested. Unregistering service workers + deleting caches...");
+        var okSW = false, okCaches = false;
+
         try {
-          // check both identifier and window binding
-          var t1 = (typeof State);
-          var t2 = (typeof window.State);
-          return (t1 !== "undefined") || (t2 !== "undefined");
-        } catch (_) {
-          try { return (typeof window.State) !== "undefined"; } catch (_) {}
-        }
-        return false;
-      }
+          if ("serviceWorker" in navigator) {
+            var regs = await navigator.serviceWorker.getRegistrations();
+            for (var i = 0; i < regs.length; i++) {
+              try { await regs[i].unregister(); okSW = true; } catch (_) {}
+            }
+          }
+        } catch (_) {}
 
-      function loadScript(src, cb) {
         try {
-          var s = document.createElement("script");
-          s.src = src;
-          s.async = false;
-          s.onload = function () { try { cb(true); } catch (_) {} };
-          s.onerror = function () { try { cb(false); } catch (_) {} };
-          document.head.appendChild(s);
+          if (window.caches && typeof caches.keys === "function") {
+            var keys = await caches.keys();
+            for (var k = 0; k < keys.length; k++) {
+              try { await caches.delete(keys[k]); okCaches = true; } catch (_) {}
+            }
+          }
+        } catch (_) {}
+
+        log("SW-KILL result: sw=" + (okSW ? "ok" : "n/a") + " caches=" + (okCaches ? "ok" : "n/a"));
+        log("SW cleared → reloading without ?nosw=1 ...");
+
+        // remove nosw from URL and hard reload
+        try {
+          var url = new URL(location.href);
+          url.searchParams.delete("nosw");
+          // keep a cache-bust to avoid any intermediate caching
+          url.searchParams.set("v", String(Date.now()));
+          location.replace(url.toString());
         } catch (_) {
-          try { cb(false); } catch (_) {}
+          location.href = location.pathname + "?v=" + Date.now();
         }
       }
 
-      function postCheck(label) {
-        var ms = Date.now() - startedAt;
-        var stateId, stateWin;
-        try { stateId = (typeof State); } catch (_) { stateId = "throws"; }
-        try { stateWin = (typeof window.State); } catch (_) { stateWin = "throws"; }
-
-        log(label + " @+" + ms + "ms");
-        log("typeof State = " + stateId);
-        log("typeof window.State = " + stateWin);
-        try { log("location.href = " + safeStr(location.href)); } catch (_) {}
-      }
-
-      // After initial load, verify State. If missing, retry state.js with cache-bust.
-      function verifyAndRecover() {
-        postCheck("BOOT CHECK");
-        if (hasState()) {
-          log("OK: State is present. If UI still shows 'State missing', your error-screen is checking something else.");
+      // Trigger SW kill switch if user hits ?nosw=1
+      try {
+        var q = location.search || "";
+        if (q.indexOf("nosw=1") !== -1) {
+          showDiag();
+          killSWAndCaches();
           return;
         }
+      } catch (_) {}
 
-        // State missing -> almost certainly file not executed (SW/404/path/cached shell).
-        log("FAIL: State missing. Attempting one-time recovery load with cache-bust...");
+      // Quick boot check after parsing
+      setTimeout(function () { postCheck("BOOT CHECK"); }, 800);
 
-        if (retriedState) return;
-        retriedState = true;
-
-        var bust = Date.now();
-        var retrySrc = "./js/core/state.js?cb=" + bust;
-
-        loadScript(retrySrc, function (ok) {
-          log("Retry load state.js => " + (ok ? "onload" : "onerror") + " (" + retrySrc + ")");
-          // Re-check
-          postCheck("AFTER RETRY");
-          if (hasState()) {
-            log("RECOVERED: State is now present after retry. Root cause is stale SW/cache or stale shell referencing missing asset.");
-            log("ACTION: Now go to System → Clear Cache Storage / Unregister Service Worker, then reload once.");
-          } else {
-            log("STILL FAIL: State still missing after retry. Root cause is likely path/deploy issue (state.js not reachable) or SW intercept returning stale/blocked response.");
-            log("NEXT: Post your service-worker.js and boot.js (full). We will harden update flow + ensure correct subpath caching.");
-          }
-        });
-      }
-
-      // run after initial parsing settled
-      setTimeout(verifyAndRecover, 1200);
+      // Expose version for later debugging
+      try { window.__APP_VERSION__ = VERSION; } catch (_) {}
     })();
   </script>
 
-  <!-- Core (NO modules, correct load order) -->
-  <script src="./js/core/state.js"></script>
-  <script src="./js/core/registry.js"></script>
-  <script src="./js/core/router.js"></script>
+  <!-- Core (versioned URLs -> bypass stale caches) -->
+  <script src="./js/core/state.js?v=2026-02-16-01"></script>
+  <script src="./js/core/registry.js?v=2026-02-16-01"></script>
+  <script src="./js/core/router.js?v=2026-02-16-01"></script>
 
-  <!-- Screens (register only) -->
-  <script src="./js/screens/dashboard.js"></script>
-  <script src="./js/screens/mindset.js"></script>
-  <script src="./js/screens/path.js"></script>
-  <script src="./js/screens/maintenance.js"></script>
-  <script src="./js/screens/finance.js"></script>
-  <script src="./js/screens/vault.js"></script>
+  <!-- Screens -->
+  <script src="./js/screens/dashboard.js?v=2026-02-16-01"></script>
+  <script src="./js/screens/mindset.js?v=2026-02-16-01"></script>
+  <script src="./js/screens/path.js?v=2026-02-16-01"></script>
+  <script src="./js/screens/maintenance.js?v=2026-02-16-01"></script>
+  <script src="./js/screens/finance.js?v=2026-02-16-01"></script>
+  <script src="./js/screens/vault.js?v=2026-02-16-01"></script>
 
   <!-- Boot LAST -->
-  <script src="./js/core/boot.js"></script>
+  <script src="./js/core/boot.js?v=2026-02-16-01"></script>
 
-  <!-- Bottom Nav + Active State Sync (crash-safe, iOS touch-safe) -->
+  <!-- Bottom Nav binding -->
   <script>
     (function () {
       "use strict";
-
       var TAB_SCREENS = { mindset: true, path: true, maintenance: true, finance: true };
 
       function setActiveTab(screenName) {
         try {
           var btns = document.querySelectorAll(".nav-btn");
           for (var i = 0; i < btns.length; i++) btns[i].classList.remove("active");
-
-          if (!TAB_SCREENS[screenName]) return; // Dashboard/Vault => no active tab
-
+          if (!TAB_SCREENS[screenName]) return;
           var btn = document.querySelector('.nav-btn[data-target="' + screenName + '"]');
           if (btn) btn.classList.add("active");
-        } catch (e) {
-          console.error("setActiveTab error", e);
-        }
+        } catch (_) {}
       }
 
       function bindNav() {
@@ -244,43 +199,28 @@
                   if (e && e.preventDefault) e.preventDefault();
                   var target = btn.getAttribute("data-target");
                   if (!target) return;
-
                   setActiveTab(target);
-
-                  if (window.Router && typeof window.Router.go === "function") {
-                    window.Router.go(target);
-                  }
-                } catch (err) {
-                  console.error("nav handler error", err);
-                }
+                  if (window.Router && typeof window.Router.go === "function") window.Router.go(target);
+                } catch (_) {}
               }
-
               btn.addEventListener("click", handler, { passive: false });
               btn.addEventListener("touchend", handler, { passive: false });
             })(btns[i]);
           }
-        } catch (e) {
-          console.error("bindNav failed", e);
-        }
+        } catch (_) {}
       }
 
       function hookRouter() {
         try {
           if (!window.Router || typeof window.Router.go !== "function") return;
-
           if (window.Router.__navHooked) return;
           window.Router.__navHooked = true;
-
           var originalGo = window.Router.go;
-
           window.Router.go = function (screenName) {
             try { setActiveTab(String(screenName || "")); } catch (_) {}
-            try { return originalGo.apply(window.Router, arguments); }
-            catch (e) { console.error("Router.go wrapper error", e); }
+            return originalGo.apply(window.Router, arguments);
           };
-        } catch (e) {
-          console.error("hookRouter failed", e);
-        }
+        } catch (_) {}
       }
 
       function bindNavSyncEvent() {
