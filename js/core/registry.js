@@ -1,50 +1,44 @@
 // js/core/registry.js
-// PERSONAL OS — Screen Registry (no modules)
+// PERSONAL OS — Screen Registry (no modules, global, defensive)
 
 (function () {
   "use strict";
 
-  // Always create a stable global registry object.
-  // Screens register themselves here; nothing executes on load.
-  var _screens = {};
-  var _mounted = {};
+  var ScreenRegistry = (function () {
+    var _screens = {};
 
-  function register(name, def) {
-    if (!name) throw new Error("ScreenRegistry.register: name missing");
-    if (!def || typeof def.mount !== "function") {
-      throw new Error("ScreenRegistry.register: def.mount missing for " + name);
+    function register(name, screenObj) {
+      try {
+        var key = String(name || "").trim();
+        if (!key) return false;
+        if (!screenObj || typeof screenObj.mount !== "function") return false;
+        _screens[key] = screenObj;
+        return true;
+      } catch (_) {
+        return false;
+      }
     }
-    _screens[name] = def;
-  }
 
-  function get(name) {
-    return _screens[name] || null;
-  }
+    function get(name) {
+      try {
+        var key = String(name || "").trim();
+        return _screens[key] || null;
+      } catch (_) {
+        return null;
+      }
+    }
 
-  function isMounted(name) {
-    return !!_mounted[name];
-  }
+    function list() {
+      try {
+        return Object.keys(_screens);
+      } catch (_) {
+        return [];
+      }
+    }
 
-  function markMounted(name) {
-    _mounted[name] = true;
-  }
+    return { register: register, get: get, list: list };
+  })();
 
-  function resetMounted(name) {
-    if (name) delete _mounted[name];
-    else _mounted = {};
-  }
-
-  function list() {
-    return Object.keys(_screens);
-  }
-
-  // Expose globally
-  window.ScreenRegistry = {
-    register: register,
-    get: get,
-    isMounted: isMounted,
-    markMounted: markMounted,
-    resetMounted: resetMounted,
-    list: list
-  };
+  try { window.ScreenRegistry = ScreenRegistry; } catch (_) {}
+  try { if (typeof globalThis !== "undefined") globalThis.ScreenRegistry = ScreenRegistry; } catch (_) {}
 })();
