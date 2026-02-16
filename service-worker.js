@@ -1,62 +1,79 @@
 // service-worker.js (FINAL, robust for GitHub Pages subpath + iOS PWA)
 
-// IMPORTANT:
-// - Uses dynamic base path (repo subpath) via registration scope
-// - Cache version bump controls updates
-// - Cache-first for app shell assets
-// - Network fallback for everything else
-// - skipWaiting + clients.claim for faster updates (still iOS-safe)
-
-const CACHE_VERSION = "v1.0.0";
+const CACHE_VERSION = "v1.0.1"; // bump on every deploy
 const CACHE_NAME = `personal-os-${CACHE_VERSION}`;
 
 // Derive base path from SW scope (works on https://USER.github.io/REPO/ )
 function getBasePath() {
-  // self.registration.scope ends with '/'
-  // Example: https://user.github.io/repo/
   const scopeUrl = new URL(self.registration.scope);
   return scopeUrl.pathname; // "/repo/" or "/"
 }
 
 function urlInScope(path) {
   const base = getBasePath();
-  // Ensure single slash
   if (base.endsWith("/")) return base + path.replace(/^\/+/, "");
   return base + "/" + path.replace(/^\/+/, "");
 }
 
+function normalizePathname(pathname) {
+  try {
+    const base = getBasePath();
+    // strip base prefix: "/repo/js/core/x.js" -> "/js/core/x.js"
+    if (pathname.startsWith(base)) return "/" + pathname.slice(base.length).replace(/^\/+/, "");
+    return pathname;
+  } catch (_) {
+    return pathname;
+  }
+}
+
 // App shell assets (relative to GH Pages repo root)
-const APP_SHELL = [
-  "index.html",
-  "css/styles.css",
-  "manifest.webmanifest",
+const SHELL_PATHS = [
+  "/index.html",
+  "/css/styles.css",
+  "/manifest.webmanifest",
 
-  "js/core/state.js",
-  "js/core/registry.js",
-  "js/core/router.js",
-  "js/core/boot.js",
+  "/js/core/state.js",
+  "/js/core/registry.js",
+  "/js/core/router.js",
+  "/js/core/boot.js",
 
-  "js/screens/dashboard.js",
-  "js/screens/mindset.js",
-  "js/screens/path.js",
-  "js/screens/finance.js",
-  "js/screens/maintenance.js",
+  "/js/screens/dashboard.js",
+  "/js/screens/mindset.js",
+  "/js/screens/path.js",
+  "/js/screens/finance.js",
+  "/js/screens/maintenance.js",
+  "/js/screens/vault.js",
 
-  "assets/icons/icon-192.png",
-  "assets/icons/icon-512.png"
-].map(urlInScope);
+  "/assets/icons/icon-192.png",
+  "/assets/icons/icon-512.png"
+];
+
+// Convert to absolute URLs within the SW scope (GH Pages subpath safe)
+const APP_SHELL = SHELL_PATHS.map((p) => urlInScope(p.replace(/^\/+/, "")));
+
+function isShellRequest(url) {
+  try {
+    const path = normalizePathname(url.pathname);
+    return SHELL_PATHS.indexOf(path) !== -1;
+  } catch (_) {
+    return false;
+  }
+}
 
 // Install: precache shell
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(APP_SHELL);
-    }).catch((e) => {
-      // If precache fails, still allow SW install
-      console.error("SW precache failed", e);
-    })
+    (async () => {
+      try {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.addAll(APP_SHELL);
+      } catch (e) {
+        // If precache fails, still allow SW install
+        console.error("SW precache failed", e);
+      }
+    })()
   );
 });
 
@@ -66,48 +83,45 @@ self.addEventListener("activate", (event) => {
     (async () => {
       try {
         const keys = await caches.keys();
-        await Promise.all(
-          keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : Promise.resolve()))
-        );
+        await Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : Promise.resolve())));
       } catch (e) {
         console.error("SW activate cleanup failed", e);
       }
-
       await self.clients.claim();
     })()
   );
 });
 
 // Fetch strategy:
-// - For app shell requests in same-origin scope: cache-first
-// - For navigation requests: try cache index.html, else network
-// - For everything else: network-first with cache fallback (safe)
+// - Navigation: serve cached index.html (ignoreSearch) fallback network
+// - App shell assets: cache-first (ignoreSearch), fallback network then cache
+// - Other same-origin in-scope: network-first with cache fallback
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-
-  // Only handle GET
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
-  const inScope = sameOrigin && url.pathname.startsWith(getBasePath());
+  const base = getBasePath();
+  const inScope = sameOrigin && url.pathname.startsWith(base);
+
+  if (!inScope) return;
 
   // Navigation request: serve cached index.html for SPA shell
   if (req.mode === "navigate") {
     event.respondWith(
       (async () => {
+        const cache = await caches.open(CACHE_NAME);
+
         try {
-          const cache = await caches.open(CACHE_NAME);
-          const cached = await cache.match(urlInScope("index.html"));
+          const cached = await cache.match(urlInScope("index.html"), { ignoreSearch: true });
           if (cached) return cached;
 
           const net = await fetch(req);
           return net;
-        } catch (e) {
-          // Offline + no cached index.html => fallback
-          const cache = await caches.open(CACHE_NAME);
-          const cached = await cache.match(urlInScope("index.html"));
-          if (cached) return cached;
+        } catch (_) {
+          const cached2 = await cache.match(urlInScope("index.html"), { ignoreSearch: true });
+          if (cached2) return cached2;
           return new Response("Offline", { status: 503, statusText: "Offline" });
         }
       })()
@@ -115,20 +129,29 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Cache-first for app shell assets
-  if (inScope && APP_SHELL.includes(url.href)) {
+  // App shell assets: cache-first (ignoreSearch)
+  if (isShellRequest(url)) {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
-        const cached = await cache.match(req);
+
+        // Try exact request (with query) but ignoreSearch => hit
+        const cached = await cache.match(req, { ignoreSearch: true });
         if (cached) return cached;
 
+        // Also try normalized shell URL
+        const path = normalizePathname(url.pathname).replace(/^\/+/, "");
+        const shellUrl = urlInScope(path);
+        const cached2 = await cache.match(shellUrl, { ignoreSearch: true });
+        if (cached2) return cached2;
+
         try {
           const res = await fetch(req);
+          // Store under the original request URL (fine) and shellUrl (more robust)
           cache.put(req, res.clone());
+          try { cache.put(shellUrl, res.clone()); } catch (_) {}
           return res;
-        } catch (e) {
-          // Offline and not cached
+        } catch (_) {
           return new Response("Offline", { status: 503, statusText: "Offline" });
         }
       })()
@@ -136,21 +159,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // For other same-origin requests: network-first with cache fallback
-  if (inScope) {
-    event.respondWith(
-      (async () => {
-        const cache = await caches.open(CACHE_NAME);
-        try {
-          const res = await fetch(req);
-          cache.put(req, res.clone());
-          return res;
-        } catch (e) {
-          const cached = await cache.match(req);
-          if (cached) return cached;
-          return new Response("Offline", { status: 503, statusText: "Offline" });
-        }
-      })()
-    );
-  }
+  // Other same-origin requests: network-first with cache fallback
+  event.respondWith(
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      try {
+        const res = await fetch(req);
+        cache.put(req, res.clone());
+        return res;
+      } catch (_) {
+        const cached = await cache.match(req, { ignoreSearch: true });
+        if (cached) return cached;
+        return new Response("Offline", { status: 503, statusText: "Offline" });
+      }
+    })()
+  );
 });
