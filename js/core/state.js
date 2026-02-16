@@ -117,11 +117,11 @@
       if (!s.finance) s.finance = {};
       if (!s.finance.currentMonth) s.finance.currentMonth = currentMonthKey();
       if (!Array.isArray(s.finance.fixedItems)) s.finance.fixedItems = [];
-      if (!s.finance.monthFlags) s.finance.monthFlags = {};     // month => flags
-      if (!s.finance.reports) s.finance.reports = {};           // month => report snapshot
-      if (!s.version) s.version = { db: DB_VERSION, app: "0.1.1" };
+      if (!s.finance.monthFlags) s.finance.monthFlags = {};
+      if (!s.finance.reports) s.finance.reports = {};
+      if (!s.version) s.version = { db: DB_VERSION, app: "0.1.2" };
       if (!s.version.db) s.version.db = DB_VERSION;
-      if (!s.version.app) s.version.app = "0.1.1";
+      s.version.app = "0.1.2";
       await DB.put("settings", s);
       return s;
     }
@@ -129,7 +129,7 @@
     var base = {
       key: "main",
       app: { name: "PERSONAL OS", slogan: "The Architecture of Excellence." },
-      version: { db: DB_VERSION, app: "0.1.1" },
+      version: { db: DB_VERSION, app: "0.1.2" },
       createdAt: nowISO(),
       updatedAt: nowISO(),
       debug: { enabled: false },
@@ -155,7 +155,6 @@
     var cats = await DB.getAll("financeCategories");
     if (cats && cats.length) return;
 
-    // Minimal sane defaults
     await DB.add("financeCategories", { type: "income", name: "Salary", order: 10 });
     await DB.add("financeCategories", { type: "income", name: "Other Income", order: 20 });
 
@@ -215,7 +214,6 @@
     if (!s.finance.reports) s.finance.reports = {};
 
     if (prev !== cur) {
-      // auto-archive previous month
       var prevReport = await financeBuildReport(prev);
       s.finance.reports[prev] = prevReport;
       s.finance.currentMonth = cur;
@@ -246,13 +244,6 @@
     s.updatedAt = nowISO();
     await DB.put("settings", s);
     return true;
-  }
-
-  function financeIsMonthClosed(settingsObj, month) {
-    try {
-      var f = settingsObj.finance.monthFlags && settingsObj.finance.monthFlags[month];
-      return !!(f && f.closedAt);
-    } catch (e) { return false; }
   }
 
   async function financeCloseMonth(month) {
@@ -705,18 +696,294 @@
     return g;
   }
 
-  // ---------- Maintenance ----------
-  async function getEssentials() { return DB.get("maintenanceEssentials", "main"); }
-  async function saveEssentials(doc) {
+  // ---------- Maintenance (Business API) ----------
+  async function getEssentialsDoc() {
+    var d = await DB.get("maintenanceEssentials", "main");
+    if (!d) {
+      d = { key: "main", categories: [] };
+      await DB.put("maintenanceEssentials", d);
+    }
+    if (!Array.isArray(d.categories)) d.categories = [];
+    return d;
+  }
+
+  async function saveEssentialsDoc(doc) {
     if (!doc || doc.key !== "main") throw new Error("saveEssentials: key main required");
+    if (!Array.isArray(doc.categories)) doc.categories = [];
     await DB.put("maintenanceEssentials", doc);
     return doc;
   }
-  async function getRoutines() { return DB.get("maintenanceRoutines", "main"); }
-  async function saveRoutines(doc) {
+
+  async function essentialsListCategories() {
+    var d = await getEssentialsDoc();
+    return d.categories.slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || "")); });
+  }
+
+  async function essentialsAddCategory(name) {
+    var d = await getEssentialsDoc();
+    var c = { id: uid(), name: (name || "Category").trim() || "Category", items: [], createdAt: nowISO() };
+    d.categories.push(c);
+    await saveEssentialsDoc(d);
+    return c;
+  }
+
+  async function essentialsRenameCategory(categoryId, newName) {
+    var d = await getEssentialsDoc();
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) {
+        d.categories[i].name = (newName || "").trim() || d.categories[i].name;
+        d.categories[i].updatedAt = nowISO();
+        break;
+      }
+    }
+    await saveEssentialsDoc(d);
+    return true;
+  }
+
+  async function essentialsDeleteCategory(categoryId) {
+    var d = await getEssentialsDoc();
+    d.categories = d.categories.filter(function (x) { return x.id !== categoryId; });
+    await saveEssentialsDoc(d);
+    return true;
+  }
+
+  async function essentialsAddItem(categoryId, item) {
+    var d = await getEssentialsDoc();
+    var target = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
+    }
+    if (!target) throw new Error("essentialsAddItem: category not found");
+
+    var it = {
+      id: uid(),
+      name: (item.name || "Item").trim() || "Item",
+      price: safeNum(item.price),
+      frequency: (item.frequency || "").trim(),
+      usage: (item.usage || "").trim(),
+      imageDataUrl: item.imageDataUrl || null,
+      createdAt: nowISO()
+    };
+    if (!Array.isArray(target.items)) target.items = [];
+    target.items.push(it);
+    target.updatedAt = nowISO();
+    await saveEssentialsDoc(d);
+    return it;
+  }
+
+  async function essentialsUpdateItem(categoryId, item) {
+    if (!item || !item.id) throw new Error("essentialsUpdateItem: item.id missing");
+    var d = await getEssentialsDoc();
+    var target = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
+    }
+    if (!target) throw new Error("essentialsUpdateItem: category not found");
+    if (!Array.isArray(target.items)) target.items = [];
+
+    for (var j = 0; j < target.items.length; j++) {
+      if (target.items[j].id === item.id) {
+        target.items[j].name = (item.name || "").trim() || target.items[j].name;
+        target.items[j].price = safeNum(item.price);
+        target.items[j].frequency = (item.frequency || "").trim();
+        target.items[j].usage = (item.usage || "").trim();
+        if (item.imageDataUrl !== undefined) target.items[j].imageDataUrl = item.imageDataUrl;
+        target.items[j].updatedAt = nowISO();
+        break;
+      }
+    }
+    target.updatedAt = nowISO();
+    await saveEssentialsDoc(d);
+    return true;
+  }
+
+  async function essentialsDeleteItem(categoryId, itemId) {
+    var d = await getEssentialsDoc();
+    var target = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
+    }
+    if (!target) throw new Error("essentialsDeleteItem: category not found");
+    if (!Array.isArray(target.items)) target.items = [];
+
+    target.items = target.items.filter(function (x) { return x.id !== itemId; });
+    target.updatedAt = nowISO();
+    await saveEssentialsDoc(d);
+    return true;
+  }
+
+  async function getRoutinesDoc() {
+    var d = await DB.get("maintenanceRoutines", "main");
+    if (!d) {
+      d = { key: "main", categories: [] };
+      await DB.put("maintenanceRoutines", d);
+    }
+    if (!Array.isArray(d.categories)) d.categories = [];
+    return d;
+  }
+
+  async function saveRoutinesDoc(doc) {
     if (!doc || doc.key !== "main") throw new Error("saveRoutines: key main required");
+    if (!Array.isArray(doc.categories)) doc.categories = [];
     await DB.put("maintenanceRoutines", doc);
     return doc;
+  }
+
+  async function routinesListCategories() {
+    var d = await getRoutinesDoc();
+    return d.categories.slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || "")); });
+  }
+
+  async function routinesAddCategory(name) {
+    var d = await getRoutinesDoc();
+    var c = { id: uid(), name: (name || "Category").trim() || "Category", checklists: [], createdAt: nowISO() };
+    d.categories.push(c);
+    await saveRoutinesDoc(d);
+    return c;
+  }
+
+  async function routinesRenameCategory(categoryId, newName) {
+    var d = await getRoutinesDoc();
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) {
+        d.categories[i].name = (newName || "").trim() || d.categories[i].name;
+        d.categories[i].updatedAt = nowISO();
+        break;
+      }
+    }
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesDeleteCategory(categoryId) {
+    var d = await getRoutinesDoc();
+    d.categories = d.categories.filter(function (x) { return x.id !== categoryId; });
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesAddChecklist(categoryId, name) {
+    var d = await getRoutinesDoc();
+    var c = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    }
+    if (!c) throw new Error("routinesAddChecklist: category not found");
+    if (!Array.isArray(c.checklists)) c.checklists = [];
+
+    var cl = { id: uid(), name: (name || "Checklist").trim() || "Checklist", items: [], createdAt: nowISO() };
+    c.checklists.push(cl);
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return cl;
+  }
+
+  async function routinesRenameChecklist(categoryId, checklistId, newName) {
+    var d = await getRoutinesDoc();
+    var c = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    }
+    if (!c) throw new Error("routinesRenameChecklist: category not found");
+    if (!Array.isArray(c.checklists)) c.checklists = [];
+
+    for (var j = 0; j < c.checklists.length; j++) {
+      if (c.checklists[j].id === checklistId) {
+        c.checklists[j].name = (newName || "").trim() || c.checklists[j].name;
+        c.checklists[j].updatedAt = nowISO();
+        break;
+      }
+    }
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesDeleteChecklist(categoryId, checklistId) {
+    var d = await getRoutinesDoc();
+    var c = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    }
+    if (!c) throw new Error("routinesDeleteChecklist: category not found");
+    if (!Array.isArray(c.checklists)) c.checklists = [];
+
+    c.checklists = c.checklists.filter(function (x) { return x.id !== checklistId; });
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesAddChecklistItem(categoryId, checklistId, text) {
+    var d = await getRoutinesDoc();
+    var c = null, cl = null;
+    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    if (!c) throw new Error("routinesAddChecklistItem: category not found");
+    if (!Array.isArray(c.checklists)) c.checklists = [];
+    for (var j = 0; j < c.checklists.length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
+    if (!cl) throw new Error("routinesAddChecklistItem: checklist not found");
+    if (!Array.isArray(cl.items)) cl.items = [];
+
+    var it = { id: uid(), text: (text || "Item").trim() || "Item", done: false, createdAt: nowISO() };
+    cl.items.push(it);
+    cl.updatedAt = nowISO();
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return it;
+  }
+
+  async function routinesToggleChecklistItem(categoryId, checklistId, itemId) {
+    var d = await getRoutinesDoc();
+    var c = null, cl = null;
+    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    if (!c) throw new Error("routinesToggleChecklistItem: category not found");
+    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
+    if (!cl) throw new Error("routinesToggleChecklistItem: checklist not found");
+
+    for (var k = 0; k < (cl.items || []).length; k++) {
+      if (cl.items[k].id === itemId) {
+        cl.items[k].done = !cl.items[k].done;
+        cl.items[k].updatedAt = nowISO();
+        break;
+      }
+    }
+    cl.updatedAt = nowISO();
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesDeleteChecklistItem(categoryId, checklistId, itemId) {
+    var d = await getRoutinesDoc();
+    var c = null, cl = null;
+    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    if (!c) throw new Error("routinesDeleteChecklistItem: category not found");
+    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
+    if (!cl) throw new Error("routinesDeleteChecklistItem: checklist not found");
+
+    cl.items = (cl.items || []).filter(function (x) { return x.id !== itemId; });
+    cl.updatedAt = nowISO();
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesResetChecklist(categoryId, checklistId) {
+    var d = await getRoutinesDoc();
+    var c = null, cl = null;
+    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    if (!c) throw new Error("routinesResetChecklist: category not found");
+    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
+    if (!cl) throw new Error("routinesResetChecklist: checklist not found");
+
+    for (var k = 0; k < (cl.items || []).length; k++) {
+      cl.items[k].done = false;
+      cl.items[k].updatedAt = nowISO();
+    }
+    cl.updatedAt = nowISO();
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
   }
 
   // ---------- Backup / Reset ----------
@@ -810,10 +1077,26 @@
   State.updateGatekeeper = updateGatekeeper;
   State.markGatekeeperPurchased = markGatekeeperPurchased;
 
-  State.getEssentials = getEssentials;
-  State.saveEssentials = saveEssentials;
-  State.getRoutines = getRoutines;
-  State.saveRoutines = saveRoutines;
+  // Maintenance API
+  State.essentialsListCategories = essentialsListCategories;
+  State.essentialsAddCategory = essentialsAddCategory;
+  State.essentialsRenameCategory = essentialsRenameCategory;
+  State.essentialsDeleteCategory = essentialsDeleteCategory;
+  State.essentialsAddItem = essentialsAddItem;
+  State.essentialsUpdateItem = essentialsUpdateItem;
+  State.essentialsDeleteItem = essentialsDeleteItem;
+
+  State.routinesListCategories = routinesListCategories;
+  State.routinesAddCategory = routinesAddCategory;
+  State.routinesRenameCategory = routinesRenameCategory;
+  State.routinesDeleteCategory = routinesDeleteCategory;
+  State.routinesAddChecklist = routinesAddChecklist;
+  State.routinesRenameChecklist = routinesRenameChecklist;
+  State.routinesDeleteChecklist = routinesDeleteChecklist;
+  State.routinesAddChecklistItem = routinesAddChecklistItem;
+  State.routinesToggleChecklistItem = routinesToggleChecklistItem;
+  State.routinesDeleteChecklistItem = routinesDeleteChecklistItem;
+  State.routinesResetChecklist = routinesResetChecklist;
 
   State.exportBackup = exportBackup;
   State.hardReset = hardReset;
