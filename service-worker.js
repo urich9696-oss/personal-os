@@ -1,6 +1,6 @@
 // service-worker.js (FINAL, robust for GitHub Pages subpath + iOS PWA)
 
-const CACHE_VERSION = "v1.0.1"; // bump on every deploy
+const CACHE_VERSION = "v1.0.2"; // IMPORTANT: bump on every deploy
 const CACHE_NAME = `personal-os-${CACHE_VERSION}`;
 
 // Derive base path from SW scope (works on https://USER.github.io/REPO/ )
@@ -18,7 +18,6 @@ function urlInScope(path) {
 function normalizePathname(pathname) {
   try {
     const base = getBasePath();
-    // strip base prefix: "/repo/js/core/x.js" -> "/js/core/x.js"
     if (pathname.startsWith(base)) return "/" + pathname.slice(base.length).replace(/^\/+/, "");
     return pathname;
   } catch (_) {
@@ -70,7 +69,6 @@ self.addEventListener("install", (event) => {
         const cache = await caches.open(CACHE_NAME);
         await cache.addAll(APP_SHELL);
       } catch (e) {
-        // If precache fails, still allow SW install
         console.error("SW precache failed", e);
       }
     })()
@@ -107,18 +105,14 @@ self.addEventListener("fetch", (event) => {
 
   if (!inScope) return;
 
-  // Navigation request: serve cached index.html for SPA shell
   if (req.mode === "navigate") {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
-
         try {
           const cached = await cache.match(urlInScope("index.html"), { ignoreSearch: true });
           if (cached) return cached;
-
-          const net = await fetch(req);
-          return net;
+          return await fetch(req);
         } catch (_) {
           const cached2 = await cache.match(urlInScope("index.html"), { ignoreSearch: true });
           if (cached2) return cached2;
@@ -129,7 +123,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // App shell assets: cache-first (ignoreSearch)
   if (isShellRequest(url)) {
     event.respondWith(
       (async () => {
@@ -156,7 +149,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Other same-origin requests: network-first with cache fallback
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
