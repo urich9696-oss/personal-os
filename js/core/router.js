@@ -1,146 +1,277 @@
 // js/core/router.js
-// PERSONAL OS — Router (single-page, mounts ScreenRegistry screens into #app-content)
-// Goals:
-// - global Router.go(screenName)
-// - params: setParam, setParams, getParam, clearParams
-// - emits window event "personalos:navigated" with {screen}
-// - defensive, no throws
+// PERSONAL OS — Router (Hash-based, Dashboard-first, Params, iOS-safe)
+// - No modules
+// - Defensive: no throws
+// - Supports: Router.go("screen"), Router.init(), getParam/setParam/clearParams
+// - Deep link format: #screen?key=value&k2=v2
+// - Emits: window.dispatchEvent(new CustomEvent("personalos:navigated",{detail:{screen}}))
 
 (function () {
   "use strict";
 
-  var Router = (function () {
-    var _params = {};
-    var _current = null;
-    var _mountToken = 0;
+  window.PersonalOS = window.PersonalOS || {};
 
-    function _getHost() {
-      try { return document.getElementById("app-content"); } catch (_) { return null; }
+  // If already installed, do not overwrite
+  if (window.Router && typeof window.Router.go === "function") {
+    window.PersonalOS.Router = window.Router;
+    return;
+  }
+
+  var _params = {};
+  var _currentScreen = "";
+  var _isNavigating = false;
+
+  var DEFAULT_SCREEN = "dashboard";
+
+  function safeStr(v) { try { return String(v); } catch (_) { return ""; } }
+
+  function getHostEl() {
+    try { return document.getElementById("app-content"); } catch (_) { return null; }
+  }
+
+  function logDiag(line) {
+    try {
+      var card = document.getElementById("diag-card");
+      var pre = document.getElementById("diag-log");
+      if (!card || !pre) return;
+      card.style.display = "block";
+      pre.textContent = (pre.textContent ? (pre.textContent + "\n") : "") + safeStr(line);
+    } catch (_) {}
+  }
+
+  function parseHash() {
+    // Expected: "#dashboard" or "#vault?dayKey=2026-02-16"
+    try {
+      var h = safeStr(location.hash || "");
+      if (!h) return { screen: "", query: "" };
+      if (h[0] === "#") h = h.slice(1);
+      var parts = h.split("?");
+      return { screen: safeStr(parts[0] || ""), query: safeStr(parts[1] || "") };
+    } catch (_) {
+      return { screen: "", query: "" };
     }
+  }
 
-    function _emitNavigated(screenName) {
-      try {
-        var ev = new CustomEvent("personalos:navigated", { detail: { screen: String(screenName || "") } });
-        window.dispatchEvent(ev);
-      } catch (_) {}
-    }
-
-    function setParam(k, v) {
-      try {
-        var key = String(k || "").trim();
-        if (!key) return;
-        _params[key] = v;
-      } catch (_) {}
-    }
-
-    function setParams(obj) {
-      try {
-        if (!obj || typeof obj !== "object") return;
-        for (var k in obj) {
-          if (Object.prototype.hasOwnProperty.call(obj, k)) setParam(k, obj[k]);
-        }
-      } catch (_) {}
-    }
-
-    function getParam(k) {
-      try {
-        var key = String(k || "").trim();
-        return _params[key];
-      } catch (_) {
-        return undefined;
+  function parseQuery(qs) {
+    // returns object
+    var out = {};
+    try {
+      var q = safeStr(qs || "");
+      if (!q) return out;
+      var pairs = q.split("&");
+      for (var i = 0; i < pairs.length; i++) {
+        var p = pairs[i];
+        if (!p) continue;
+        var idx = p.indexOf("=");
+        var k = idx >= 0 ? p.slice(0, idx) : p;
+        var v = idx >= 0 ? p.slice(idx + 1) : "";
+        try { k = decodeURIComponent(k); } catch (_) {}
+        try { v = decodeURIComponent(v); } catch (_) {}
+        if (!k) continue;
+        out[k] = v;
       }
+    } catch (_) {}
+    return out;
+  }
+
+  function buildHash(screen, params) {
+    try {
+      var s = safeStr(screen || "");
+      if (!s) s = DEFAULT_SCREEN;
+
+      var q = "";
+      if (params && typeof params === "object") {
+        var keys = Object.keys(params);
+        var parts = [];
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          if (!Object.prototype.hasOwnProperty.call(params, k)) continue;
+          var v = params[k];
+          if (v === null || typeof v === "undefined") continue;
+          var kk = "";
+          var vv = "";
+          try { kk = encodeURIComponent(safeStr(k)); } catch (_) { kk = safeStr(k); }
+          try { vv = encodeURIComponent(safeStr(v)); } catch (_) { vv = safeStr(v); }
+          parts.push(kk + "=" + vv);
+        }
+        if (parts.length) q = parts.join("&");
+      }
+
+      return "#" + s + (q ? ("?" + q) : "");
+    } catch (_) {
+      return "#" + DEFAULT_SCREEN;
+    }
+  }
+
+  function emitNavigated(screenName) {
+    try {
+      var ev;
+      try {
+        ev = new CustomEvent("personalos:navigated", { detail: { screen: safeStr(screenName || "") } });
+      } catch (_) {
+        // IE fallback not needed, but keep safe
+        ev = document.createEvent("CustomEvent");
+        ev.initCustomEvent("personalos:navigated", false, false, { screen: safeStr(screenName || "") });
+      }
+      window.dispatchEvent(ev);
+    } catch (_) {}
+  }
+
+  async function mountScreen(screenName) {
+    var host = getHostEl();
+    if (!host) {
+      logDiag("ROUTER: #app-content missing.");
+      return false;
     }
 
-    function clearParams() {
-      try { _params = {}; } catch (_) {}
+    if (!window.ScreenRegistry || typeof window.ScreenRegistry.get !== "function") {
+      logDiag("ROUTER: ScreenRegistry missing.");
+      host.innerHTML = "<div class='error'>System error: ScreenRegistry missing</div>";
+      return false;
     }
 
-    async function go(screenName) {
-      var token = ++_mountToken;
+    var def = null;
+    try { def = window.ScreenRegistry.get(screenName); } catch (_) { def = null; }
+
+    if (!def || typeof def.mount !== "function") {
+      // Unknown screen -> fallback to dashboard
+      if (screenName !== DEFAULT_SCREEN) {
+        return await navigateTo(DEFAULT_SCREEN, true);
+      }
+      host.innerHTML = "<div class='error'>Unknown screen</div>";
+      return false;
+    }
+
+    try {
+      await def.mount(host, { screen: screenName, params: _params });
+      return true;
+    } catch (e) {
+      logDiag("ROUTER: mount failed for '" + safeStr(screenName) + "': " + safeStr(e && e.message ? e.message : e));
+      try {
+        host.innerHTML = "<div class='error'>Screen failed: " + safeStr(screenName) + "</div>";
+      } catch (_) {}
+      return false;
+    }
+  }
+
+  async function navigateTo(screenName, replace) {
+    if (_isNavigating) return false;
+    _isNavigating = true;
+
+    try {
+      var target = safeStr(screenName || "").trim();
+      if (!target) target = DEFAULT_SCREEN;
+
+      // Set hash (this is your "URL state")
+      var hash = buildHash(target, _params);
 
       try {
-        var name = String(screenName || "").trim();
-        if (!name) name = "dashboard";
+        if (replace) location.replace(hash);
+        else location.hash = hash;
+      } catch (_) {
+        // ignore
+      }
 
-        var host = _getHost();
-        if (!host) return false;
+      _currentScreen = target;
 
-        // If screen not registered, fallback
-        var reg = (window.ScreenRegistry && typeof window.ScreenRegistry.get === "function")
-          ? window.ScreenRegistry.get(name)
-          : null;
+      // Mount immediately (don’t rely on hashchange for iOS quirks)
+      var ok = await mountScreen(target);
 
-        if (!reg) {
-          name = "dashboard";
-          reg = (window.ScreenRegistry && typeof window.ScreenRegistry.get === "function")
-            ? window.ScreenRegistry.get(name)
-            : null;
+      // Notify nav binding
+      emitNavigated(target);
+
+      return ok;
+    } finally {
+      _isNavigating = false;
+    }
+  }
+
+  var Router = {
+    init: async function () {
+      try {
+        var parsed = parseHash();
+        var screen = safeStr(parsed.screen || "").trim();
+        var query = safeStr(parsed.query || "");
+
+        // If no screen in hash -> dashboard
+        if (!screen) {
+          _params = {};
+          _currentScreen = DEFAULT_SCREEN;
+          // Ensure hash reflects state (use replace to avoid history spam)
+          try { location.replace(buildHash(DEFAULT_SCREEN, {})); } catch (_) {}
+          await mountScreen(DEFAULT_SCREEN);
+          emitNavigated(DEFAULT_SCREEN);
+          return true;
         }
 
-        host.innerHTML = "";
+        // Parse params from hash query (deep-link)
+        _params = parseQuery(query);
 
-        // render minimal error if still missing
-        if (!reg || typeof reg.mount !== "function") {
-          host.innerHTML =
-            "<div class='dash-card' style='margin-top:12px;'>" +
-              "<div style='font-weight:900;'>Screen missing</div>" +
-              "<div style='font-size:13px; opacity:0.75; margin-top:6px;'>" +
-                "Registry hat keinen Screen: " + escapeHtml(name) +
-              "</div>" +
-            "</div>";
-          _current = name;
-          _emitNavigated(name);
-          return false;
-        }
-
-        _current = name;
-        _emitNavigated(name);
-
-        // mount
-        await reg.mount(host, { screen: name, params: _params });
-
-        // If another navigation started while mounting, ignore
-        if (token !== _mountToken) return false;
-
-        return true;
+        _currentScreen = screen;
+        var ok = await mountScreen(screen);
+        emitNavigated(screen);
+        return ok;
       } catch (e) {
+        logDiag("ROUTER.init failed: " + safeStr(e && e.message ? e.message : e));
         try {
-          var h = _getHost();
-          if (h) {
-            h.innerHTML =
-              "<div class='dash-card' style='margin-top:12px; border:1px solid rgba(160,60,60,0.25);'>" +
-                "<div style='font-weight:900; color:#7a1f1f;'>Router error</div>" +
-                "<div style='font-size:12px; opacity:0.85; margin-top:8px; white-space:pre-wrap;'>" +
-                  escapeHtml(String(e && (e.message || e) || "unknown")) +
-                "</div>" +
-              "</div>";
-          }
+          _params = {};
+          _currentScreen = DEFAULT_SCREEN;
+          await mountScreen(DEFAULT_SCREEN);
+          emitNavigated(DEFAULT_SCREEN);
         } catch (_) {}
         return false;
       }
+    },
+
+    go: function (screenName) {
+      // Keep existing params unless caller cleared; most screens do one-shot clear
+      return navigateTo(screenName, false);
+    },
+
+    replace: function (screenName) {
+      return navigateTo(screenName, true);
+    },
+
+    getCurrent: function () {
+      return _currentScreen || DEFAULT_SCREEN;
+    },
+
+    // Params API
+    getParam: function (key) {
+      try { return _params[safeStr(key)]; } catch (_) { return null; }
+    },
+
+    setParam: function (key, value) {
+      try {
+        var k = safeStr(key);
+        if (!k) return false;
+        _params[k] = value;
+        return true;
+      } catch (_) {
+        return false;
+      }
+    },
+
+    setParams: function (obj) {
+      try {
+        if (!obj || typeof obj !== "object") return false;
+        var keys = Object.keys(obj);
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+          _params[safeStr(k)] = obj[k];
+        }
+        return true;
+      } catch (_) {
+        return false;
+      }
+    },
+
+    clearParams: function () {
+      try { _params = {}; return true; } catch (_) { return false; }
     }
+  };
 
-    function current() { return _current; }
-
-    function escapeHtml(str) {
-      return String(str || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
-
-    return {
-      go: go,
-      current: current,
-      setParam: setParam,
-      setParams: setParams,
-      getParam: getParam,
-      clearParams: clearParams
-    };
-  })();
-
-  try { window.Router = Router; } catch (_) {}
-  try { if (typeof globalThis !== "undefined") globalThis.Router = Router; } catch (_) {}
+  window.Router = Router;
+  window.PersonalOS.Router = Router;
 })();
