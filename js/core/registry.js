@@ -1,64 +1,27 @@
-// js/core/registry.js
-// PERSONAL OS — Screen Registry (global, crash-safe)
-// - No modules
-// - Provides window.ScreenRegistry + window.PersonalOS.ScreenRegistry
-// - Idempotent (safe if loaded multiple times)
-
 (function () {
   "use strict";
 
-  window.PersonalOS = window.PersonalOS || {};
+  var screens = {};
 
-  // If already present, keep it (avoid overwriting)
-  if (window.ScreenRegistry && typeof window.ScreenRegistry.register === "function") {
-    window.PersonalOS.ScreenRegistry = window.ScreenRegistry;
-    return;
+  function register(name, spec) {
+    if (!name) throw new Error("ScreenRegistry.register: name missing");
+    if (!spec || typeof spec.mount !== "function") {
+      throw new Error("ScreenRegistry.register: mount() missing for " + name);
+    }
+    screens[name] = spec;
   }
 
-  var _screens = {};
-  var _mounted = {};
+  function get(name) {
+    return screens[name] || null;
+  }
 
-  var reg = {
-    register: function (name, def) {
-      try {
-        var key = String(name || "").trim();
-        if (!key) return false;
-        _screens[key] = def || {};
-        return true;
-      } catch (_) {
-        return false;
-      }
-    },
+  function has(name) {
+    return !!screens[name];
+  }
 
-    get: function (name) {
-      try {
-        var key = String(name || "").trim();
-        return _screens[key] || null;
-      } catch (_) {
-        return null;
-      }
-    },
-
-    isMounted: function (name) {
-      try { return !!_mounted[String(name || "")]; } catch (_) { return false; }
-    },
-
-    markMounted: function (name) {
-      try { _mounted[String(name || "")] = true; } catch (_) {}
-    },
-
-    resetMounted: function (name) {
-      try {
-        if (name) delete _mounted[String(name || "")];
-        else _mounted = {};
-      } catch (_) {}
-    },
-
-    list: function () {
-      try { return Object.keys(_screens); } catch (_) { return []; }
-    }
+  window.ScreenRegistry = {
+    register: register,
+    get: get,
+    has: has
   };
-
-  window.ScreenRegistry = reg;
-  window.PersonalOS.ScreenRegistry = reg;
 })();
