@@ -5,11 +5,28 @@
     mount: async function (container, ctx) {
       container.innerHTML = "";
 
+      var today = UI.formatDateISO(new Date());
+
+      // Data
+      var j = await State.getJournal(today);
+      var todos = (j && j.morning && Array.isArray(j.morning.todos)) ? j.morning.todos : [];
+      var openTodos = todos.filter(function (t) { return !t.done; }).length;
+
+      var blocks = await State.listBlocksByDate(today);
+      var nextBlockText = computeNextBlock(blocks);
+
+      var fin = await computeMonthFinanceSummary(today);
+      var budgetRemainingText = fin.remainingText;
+
+      var gatekeepers = await State.listGatekeepers();
+      var activeCount = gatekeepers.filter(function (g) { return g.status !== "purchased" && g.status !== "cancelled"; }).length;
+
+      // UI
       var top = UI.el("div", { className: "grid-2" }, [
-        tile("Performance (ToDos)", "0 offen"),
-        tile("Next Block", "—"),
-        tile("Budget Remaining", "CHF —"),
-        tile("Gatekeeper", "0 aktiv")
+        tile("Performance (ToDos)", openTodos + " offen"),
+        tile("Next Block", nextBlockText),
+        tile("Budget Remaining", budgetRemainingText),
+        tile("Gatekeeper", activeCount + " aktiv")
       ]);
 
       var quickTitle = UI.el("div", { className: "section-title", text: "Quick Add" }, []);
@@ -25,7 +42,7 @@
         select.value = "";
         if (!v) return;
 
-        if (v === "newBlock") Router.go("path", { action: "newBlock" });
+        if (v === "newBlock") Router.go("path", { action: "newBlock", date: today });
         if (v === "addTx") Router.go("finance", { action: "addTx" });
         if (v === "addGatekeeper") Router.go("finance", { action: "addGatekeeper" });
       });
@@ -52,5 +69,46 @@
       UI.el("div", { className: "tile__label", text: label }, []),
       UI.el("div", { className: "tile__value", text: value }, [])
     ]);
+  }
+
+  function computeNextBlock(blocks) {
+    if (!blocks || !blocks.length) return "—";
+    var now = new Date();
+    var nowMins = now.getHours() * 60 + now.getMinutes();
+
+    // blocks already sorted by start
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      var s = UI.timeToMinutes(b.start);
+      if (s === null) continue;
+      if (s >= nowMins) {
+        return (b.start || "") + " " + (b.title || "Block");
+      }
+    }
+    // fallback first
+    var first = blocks[0];
+    return (first.start || "—") + " " + (first.title || "Block");
+  }
+
+  async function computeMonthFinanceSummary(todayISO) {
+    var month = todayISO.slice(0, 7);
+    var txs = await State.listTransactionsByMonth(month);
+    var income = 0;
+    var expense = 0;
+    for (var i = 0; i < txs.length; i++) {
+      var t = txs[i];
+      var amt = Number(t.amount || 0);
+      if (t.type === "income") income += amt;
+      else expense += amt;
+    }
+    var remaining = income - expense;
+    var txt = "CHF " + formatMoney(remaining);
+    if (!txs.length) txt = "CHF —";
+    return { income: income, expense: expense, remaining: remaining, remainingText: txt };
+  }
+
+  function formatMoney(n) {
+    var x = Number(n || 0);
+    return x.toFixed(2);
   }
 })();
