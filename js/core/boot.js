@@ -1,68 +1,28 @@
 // js/core/boot.js
-// PERSONAL OS — Bootloader (robust, crash-safe, iOS-safe)
-// Ziele:
-// - Niemals White Screen: On-screen Boot-Fallback bei Fehlern
-// - DB öffnen + ensureTodayState
-// - Router.init() starten (Dashboard default)
-// - Service Worker registrieren + Update-Hinweis (iOS-safe)
-// - Kein DevTools-Zwang: Fehler werden im UI angezeigt (optional mehr bei Debug)
-
-// NOTE: Requires in index.html load order:
-// state.js -> registry.js -> router.js -> screens -> boot.js
+// PERSONAL OS — Boot Sequence
+// - Ensure DB seed + today state
+// - Determine start screen from settings (ui.startScreen) else dashboard
+// - Start screen is NOT a bottom tab; bottom tabs are screens but dashboard is default entry
 
 (function () {
   "use strict";
 
-  function $(id) { return document.getElementById(id); }
+  function safeStr(v) { try { return String(v); } catch (_) { return ""; } }
 
-  function renderBootError(title, details) {
+  function showBootError(msg) {
     try {
-      var host = $("app-content");
+      var host = document.getElementById("app-content");
       if (!host) return;
-
-      var wrap = document.createElement("div");
-      wrap.className = "error";
-      wrap.style.marginTop = "12px";
-      wrap.innerHTML =
-        "<div style='font-weight:900; margin-bottom:6px;'>" + escapeHtml(title || "Boot Error") + "</div>" +
-        "<div style='font-size:13px; opacity:0.85;'>" + escapeHtml(details || "Unknown") + "</div>" +
-        "<div style='font-size:12px; opacity:0.75; margin-top:10px;'>" +
-          "Tip: System → Clear Cache Storage / Unregister Service Worker, dann Reload." +
+      host.innerHTML =
+        "<div class='dash-card' style='margin-top:12px; border:1px solid rgba(160,60,60,0.25);'>" +
+          "<div style='font-weight:900; color:#7a1f1f;'>Boot failed</div>" +
+          "<div style='font-size:13px; opacity:0.85; margin-top:8px; white-space:pre-wrap;'>" +
+            escapeHtml(msg) +
+          "</div>" +
+          "<div style='font-size:12px; opacity:0.75; margin-top:10px;'>" +
+            "Tipp: Wenn du auf GitHub Pages eine alte Version siehst: URL mit <b>?nosw=1</b> öffnen." +
+          "</div>" +
         "</div>";
-
-      // Replace only if empty-ish; otherwise append
-      if (!host.innerHTML || host.innerHTML.trim().length < 20) host.innerHTML = "";
-      host.appendChild(wrap);
-    } catch (_) {}
-  }
-
-  function renderToast(msg) {
-    try {
-      var host = document.body;
-      if (!host) return;
-
-      var el = document.createElement("div");
-      el.style.position = "fixed";
-      el.style.left = "16px";
-      el.style.right = "16px";
-      el.style.bottom = "calc(80px + env(safe-area-inset-bottom, 0px))";
-      el.style.zIndex = "999";
-      el.style.padding = "12px 14px";
-      el.style.borderRadius = "14px";
-      el.style.background = "rgba(255,255,255,0.82)";
-      el.style.border = "1px solid rgba(0,0,0,0.12)";
-      el.style.boxShadow = "0 10px 24px rgba(0,0,0,0.12)";
-      el.style.backdropFilter = "blur(14px)";
-      el.style.webkitBackdropFilter = "blur(14px)";
-      el.style.color = "#121212";
-      el.style.fontSize = "13px";
-      el.style.opacity = "0.98";
-      el.textContent = String(msg || "");
-
-      host.appendChild(el);
-      setTimeout(function () {
-        try { el.remove(); } catch (_) {}
-      }, 4200);
     } catch (_) {}
   }
 
@@ -70,88 +30,55 @@
     return String(str || "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
+      .replace(/>/g, "&lt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
   }
 
   async function boot() {
     try {
-      // 1) Sanity
-      if (typeof window.State === "undefined" || typeof window.State.openDB !== "function") {
-        renderBootError("State missing", "state.js not loaded or corrupted");
-        return;
-      }
-      if (typeof window.Router === "undefined" || typeof window.Router.init !== "function") {
-        renderBootError("Router missing", "router.js not loaded or corrupted");
-        return;
-      }
+      // Hard prerequisites
+      if (!window.State) { showBootError("State fehlt (state.js nicht geladen)."); return; }
+      if (!window.Router) { showBootError("Router fehlt (router.js nicht geladen)."); return; }
+      if (!window.ScreenRegistry) { showBootError("ScreenRegistry fehlt (registry.js nicht geladen)."); return; }
 
-      // 2) Open DB + day state
-      await window.State.openDB();
-      await window.State.ensureTodayState();
-
-      // 3) Optional debug runtime flag (persisted)
+      // Ensure DB + today
       try {
-        var s = await window.State.getSettings();
-        window.PersonalOS = window.PersonalOS || {};
-        window.PersonalOS.debug = !!(s && s.ui && s.ui.debug);
+        if (typeof window.State.ensureTodayState === "function") {
+          await window.State.ensureTodayState();
+        } else if (typeof window.State.ensureCoreSeed === "function") {
+          await window.State.ensureCoreSeed();
+        }
       } catch (_) {}
 
-      // 4) Router init (Dashboard default)
-      window.Router.init();
+      // Determine start screen
+      var startScreen = "dashboard";
+      try {
+        if (typeof window.State.getSettings === "function") {
+          var s = await window.State.getSettings();
+          if (s && s.ui && s.ui.startScreen) startScreen = safeStr(s.ui.startScreen) || "dashboard";
+        }
+      } catch (_) {}
 
+      // Always fall back to dashboard
+      if (!startScreen) startScreen = "dashboard";
+
+      // Navigate
+      await window.Router.go(startScreen);
     } catch (e) {
-      console.error("Boot failure", e);
-      renderBootError("Boot failure", (e && e.message) ? e.message : String(e));
-      return;
-    }
-
-    // 5) Service Worker registration (separate safe block)
-    try {
-      if (!("serviceWorker" in navigator)) return;
-
-      // GH Pages subpath safe
-      var swUrl = "./service-worker.js";
-
-      var reg = await navigator.serviceWorker.register(swUrl);
-
-      // Update hint: if waiting worker exists -> show toast
-      if (reg && reg.waiting) {
-        renderToast("Update verfügbar. App neu starten für die neue Version.");
-      }
-
-      // Listen for updates
-      reg.addEventListener("updatefound", function () {
-        try {
-          var newWorker = reg.installing;
-          if (!newWorker) return;
-
-          newWorker.addEventListener("statechange", function () {
-            try {
-              if (newWorker.state === "installed") {
-                // If there's an existing controller, it's an update
-                if (navigator.serviceWorker.controller) {
-                  renderToast("Update installiert. App neu starten, um zu aktualisieren.");
-                }
-              }
-            } catch (_) {}
-          });
-        } catch (_) {}
-      });
-
-      // Optional: controller change -> reload hint (do not auto-reload to avoid iOS weirdness)
-      navigator.serviceWorker.addEventListener("controllerchange", function () {
-        try { renderToast("App wurde aktualisiert. Bitte einmal neu öffnen."); } catch (_) {}
-      });
-
-    } catch (e2) {
-      console.error("SW init error", e2);
-      // Do not block app
+      showBootError(String(e && (e.message || e) || "unknown boot error"));
     }
   }
 
-  document.addEventListener("DOMContentLoaded", function () {
-    boot();
-  });
+  // DOM ready
+  try {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", boot, { passive: true });
+    } else {
+      boot();
+    }
+  } catch (_) {
+    // last resort
+    setTimeout(boot, 0);
+  }
 })();
