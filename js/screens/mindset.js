@@ -1,10 +1,12 @@
 // js/screens/mindset.js
 // PERSONAL OS — Mindset (6-Minuten-Journal: Morning + Evening + Guardrails)
-// Regeln:
-// - morning: editierbar (Text + ToDos anlegen), danach "Complete Morning" => execution
-// - execution: Journal read-only (Hinweis + Button "Start Evening Review" => evening)
-// - evening: editierbar (Reflection/Rating/Gratitude), danach "Close Day" => closed + Vault Snapshot
-// - closed: read-only (Hinweis + Button zu Vault)
+// Ziele:
+// - Morning editierbar nur in "morning"
+// - ToDo-Abhaken nur in "execution" (passiert im Path Screen)
+// - Evening editierbar nur in "evening"
+// - Closed = read-only + CTA "View Vault"
+// - Keine direkte IndexedDB-Nutzung hier (nur State API)
+// - Optionaler Fokus via Router params: focus="morning" | "evening"
 
 ScreenRegistry.register("mindset", {
   async mount(container, ctx) {
@@ -13,209 +15,65 @@ ScreenRegistry.register("mindset", {
 
       const today = State.getTodayKey();
       const status = await State.getDayStatus();
-
-      const focus = (Router.getParam("focus") || "").toString(); // "morning" | "evening" (optional)
-      // focus param is one-shot
+      const focus = String(Router.getParam("focus") || "");
+      // One-shot param consumption
       if (focus) Router.clearParams();
+
+      let entry = await State.getJournal(today);
+      entry = State.ensureJournalShape(entry, today);
 
       const root = document.createElement("div");
       root.className = "mindset";
 
-      // Load or create journal entry via State API (single source of truth)
-      let entry = await State.getJournal(today);
-      entry = State.ensureJournalShape(entry, today);
+      const title = document.createElement("h2");
+      title.textContent = "Mindset";
+      root.appendChild(title);
 
-      // Helper: save journal via State API
-      async function saveEntry() {
-        return await State.putJournal(entry);
-      }
+      // Status indicator
+      const statusCard = document.createElement("div");
+      statusCard.className = "dash-card";
+      statusCard.innerHTML = `
+        <div class="dash-meta">Status</div>
+        <div style="font-size:14px; font-weight:900; margin-top:6px;">${escapeHtml(String(status || "").toUpperCase())}</div>
+        <div style="font-size:12px; opacity:0.75; margin-top:4px;">${escapeHtml(today)}</div>
+      `;
+      root.appendChild(statusCard);
 
-      // Helper UI: section title
-      function h2(text) {
-        const el = document.createElement("h2");
-        el.textContent = text;
-        return el;
-      }
+      // Closed guardrail: read-only info + vault CTA
+      if (status === "closed") {
+        const info = document.createElement("div");
+        info.className = "dash-card";
+        info.innerHTML = `
+          <div style="font-weight:900; margin-bottom:6px;">Day Closed</div>
+          <div style="font-size:13px; opacity:0.75;">Dieser Tag ist abgeschlossen und read-only.</div>
+        `;
+        root.appendChild(info);
 
-      // Helper UI: info block
-      function info(text) {
-        const el = document.createElement("div");
-        el.style.padding = "12px";
-        el.style.borderRadius = "14px";
-        el.style.background = "rgba(255,255,255,0.62)";
-        el.style.border = "1px solid rgba(0,0,0,0.08)";
-        el.style.boxShadow = "0 10px 22px rgba(0,0,0,0.06)";
-        el.style.fontSize = "13px";
-        el.style.opacity = "0.85";
-        el.textContent = text;
-        return el;
-      }
-
-      // Helper: render todos (morning mode)
-      function renderMorningTodos(listHost) {
-        listHost.innerHTML = "";
-        const todos = (entry.morning && Array.isArray(entry.morning.todos)) ? entry.morning.todos : [];
-        if (todos.length === 0) {
-          listHost.appendChild(info("Keine ToDos. Lege mindestens 1 ToDo an, damit Execution Sinn macht."));
-          return;
-        }
-
-        for (let i = 0; i < todos.length; i++) {
-          const t = todos[i];
-          const row = document.createElement("div");
-          row.className = "todo-row";
-          row.style.justifyContent = "space-between";
-
-          const left = document.createElement("div");
-          left.style.display = "flex";
-          left.style.alignItems = "center";
-          left.style.gap = "10px";
-
-          const dot = document.createElement("div");
-          dot.style.width = "10px";
-          dot.style.height = "10px";
-          dot.style.borderRadius = "999px";
-          dot.style.background = "rgba(18,18,18,0.25)";
-
-          const text = document.createElement("div");
-          text.textContent = String(t && t.text ? t.text : "");
-          text.style.flex = "1";
-
-          left.appendChild(dot);
-          left.appendChild(text);
-
-          const del = document.createElement("button");
-          del.type = "button";
-          del.textContent = "Remove";
-          del.style.marginTop = "0";
-          del.onclick = async function () {
-            entry.morning.todos.splice(i, 1);
-            await saveEntry();
-            renderMorningTodos(listHost);
-          };
-
-          row.appendChild(left);
-          row.appendChild(del);
-
-          listHost.appendChild(row);
-        }
-      }
-
-      // ---------- MORNING ----------
-      if (status === "morning") {
-        root.appendChild(h2("Morning Setup"));
-        root.appendChild(info("Du definierst den Tag. Danach ist Journal gesperrt und Execution startet."));
-
-        const t1 = document.createElement("textarea");
-        t1.placeholder = "Ich freue mich auf …";
-        t1.value = (entry.morning && entry.morning.lookingForward) ? entry.morning.lookingForward : "";
-
-        const t2 = document.createElement("textarea");
-        t2.placeholder = "Das mache ich heute gut …";
-        t2.value = (entry.morning && entry.morning.planning) ? entry.morning.planning : "";
-
-        root.appendChild(t1);
-        root.appendChild(t2);
-
-        // Todo add
-        const todoInput = document.createElement("input");
-        todoInput.placeholder = "ToDo hinzufügen";
-        root.appendChild(todoInput);
-
-        const addBtn = document.createElement("button");
-        addBtn.type = "button";
-        addBtn.textContent = "Add ToDo";
-
-        const todoList = document.createElement("div");
-
-        addBtn.onclick = async function () {
-          const text = String(todoInput.value || "").trim();
-          if (!text) return;
-
-          if (!entry.morning) entry.morning = { lookingForward: "", planning: "", todos: [] };
-          if (!Array.isArray(entry.morning.todos)) entry.morning.todos = [];
-
-          entry.morning.todos.push({ text: text, done: false });
-          todoInput.value = "";
-
-          // persist immediately (avoid data loss)
-          entry.morning.lookingForward = t1.value;
-          entry.morning.planning = t2.value;
-          await saveEntry();
-
-          renderMorningTodos(todoList);
-        };
-
-        root.appendChild(addBtn);
-        root.appendChild(todoList);
-        renderMorningTodos(todoList);
-
-        // Complete morning
-        const completeBtn = document.createElement("button");
-        completeBtn.type = "button";
-        completeBtn.textContent = "Complete Morning";
-
-        const msg = document.createElement("div");
-        msg.style.fontSize = "13px";
-        msg.style.opacity = "0.75";
-        msg.style.marginTop = "8px";
-
-        completeBtn.onclick = async function () {
-          msg.textContent = "";
-
-          // persist text first
-          entry.morning.lookingForward = t1.value;
-          entry.morning.planning = t2.value;
-
-          // require at least 1 todo (hard guardrail)
-          const todos = (entry.morning && Array.isArray(entry.morning.todos)) ? entry.morning.todos : [];
-          if (todos.length === 0) {
-            msg.textContent = "Lege mindestens 1 ToDo an, bevor du Morning abschließt.";
-            return;
-          }
-
-          const okSave = await saveEntry();
-          if (!okSave) {
-            msg.textContent = "Konnte Journal nicht speichern.";
-            return;
-          }
-
-          const ok = await State.completeMorning();
-          if (!ok) {
-            msg.textContent = "Statuswechsel fehlgeschlagen.";
-            return;
-          }
-
-          Router.go("path");
-        };
-
-        root.appendChild(completeBtn);
-        root.appendChild(msg);
+        const vBtn = document.createElement("button");
+        vBtn.type = "button";
+        vBtn.textContent = "View Vault";
+        vBtn.onclick = function () { Router.go("vault"); };
+        root.appendChild(vBtn);
 
         container.appendChild(root);
         return;
       }
 
-      // ---------- EXECUTION ----------
+      // Execution guardrail: Journal locked
       if (status === "execution") {
-        root.appendChild(h2("Execution Mode"));
-        root.appendChild(info("Journal ist gesperrt. ToDos werden in Today’s Path abgehakt."));
-
-        // Show read-only summary of morning
-        const card = document.createElement("div");
-        card.className = "dash-card";
-        card.innerHTML = `
-          <div class="dash-meta">Morning Summary</div>
-          <div style="margin-top:8px; font-size:14px;"><strong>Ich freue mich auf:</strong><br>${escapeHtml(entry.morning && entry.morning.lookingForward ? entry.morning.lookingForward : "")}</div>
-          <div style="margin-top:10px; font-size:14px;"><strong>Das mache ich gut:</strong><br>${escapeHtml(entry.morning && entry.morning.planning ? entry.morning.planning : "")}</div>
+        const info2 = document.createElement("div");
+        info2.className = "dash-card";
+        info2.innerHTML = `
+          <div style="font-weight:900; margin-bottom:6px;">Execution Mode</div>
+          <div style="font-size:13px; opacity:0.75;">Journal ist gesperrt. ToDos werden in Today’s Path abgehakt.</div>
         `;
-        root.appendChild(card);
+        root.appendChild(info2);
 
-        const toPath = document.createElement("button");
-        toPath.type = "button";
-        toPath.textContent = "Go to Today’s Path";
-        toPath.onclick = () => Router.go("path");
-        root.appendChild(toPath);
+        const goPath = document.createElement("button");
+        goPath.type = "button";
+        goPath.textContent = "Go to Today’s Path";
+        goPath.onclick = function () { Router.go("path"); };
+        root.appendChild(goPath);
 
         const startEveningBtn = document.createElement("button");
         startEveningBtn.type = "button";
@@ -230,91 +88,227 @@ ScreenRegistry.register("mindset", {
         return;
       }
 
-      // ---------- EVENING ----------
-      if (status === "evening") {
-        root.appendChild(h2("Evening Review"));
-        root.appendChild(info("Reflexion abschließen. Danach wird der Tag geschlossen und im Vault archiviert."));
+      // =========================
+      // MORNING (editable)
+      // =========================
+      if (status === "morning") {
+        const sec = document.createElement("div");
+        sec.className = "dash-card";
+        sec.innerHTML = `<div style="font-weight:900; margin-bottom:10px;">Morning Setup</div>`;
 
-        const t1 = document.createElement("textarea");
-        t1.placeholder = "Reflexion …";
-        t1.value = (entry.evening && entry.evening.reflection) ? entry.evening.reflection : "";
+        const lf = document.createElement("textarea");
+        lf.placeholder = "Ich freue mich auf...";
+        lf.value = String((entry.morning && entry.morning.lookingForward) || "");
 
-        const t2 = document.createElement("input");
-        t2.placeholder = "Tagesbewertung (z. B. 8/10)";
-        t2.value = (entry.evening && entry.evening.rating) ? entry.evening.rating : "";
+        const pl = document.createElement("textarea");
+        pl.placeholder = "Das mache ich heute gut...";
+        pl.value = String((entry.morning && entry.morning.planning) || "");
 
-        const t3 = document.createElement("textarea");
-        t3.placeholder = "Dankbarkeit …";
-        t3.value = (entry.evening && entry.evening.gratitude) ? entry.evening.gratitude : "";
+        sec.appendChild(lf);
+        sec.appendChild(pl);
 
-        root.appendChild(t1);
-        root.appendChild(t2);
-        root.appendChild(t3);
+        // ToDos builder (unlimited)
+        const todoCard = document.createElement("div");
+        todoCard.style.marginTop = "10px";
 
-        const closeBtn = document.createElement("button");
-        closeBtn.type = "button";
-        closeBtn.textContent = "Close Day";
+        const todoLabel = document.createElement("div");
+        todoLabel.style.fontWeight = "900";
+        todoLabel.style.marginBottom = "8px";
+        todoLabel.textContent = "ToDos";
+        todoCard.appendChild(todoLabel);
 
-        const msg = document.createElement("div");
-        msg.style.fontSize = "13px";
-        msg.style.opacity = "0.75";
-        msg.style.marginTop = "8px";
+        const todoInput = document.createElement("input");
+        todoInput.placeholder = "Neues ToDo hinzufügen";
+        todoCard.appendChild(todoInput);
 
-        closeBtn.onclick = async function () {
-          msg.textContent = "";
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.textContent = "Add ToDo";
+        todoCard.appendChild(addBtn);
 
-          entry.evening.reflection = t1.value;
-          entry.evening.rating = t2.value;
-          entry.evening.gratitude = t3.value;
+        const todoList = document.createElement("div");
+        todoList.style.marginTop = "10px";
+        todoCard.appendChild(todoList);
 
-          const okSave = await saveEntry();
-          if (!okSave) {
-            msg.textContent = "Konnte Evening nicht speichern.";
+        function ensureTodosArray() {
+          if (!entry.morning) entry.morning = { lookingForward: "", planning: "", todos: [] };
+          if (!Array.isArray(entry.morning.todos)) entry.morning.todos = [];
+          return entry.morning.todos;
+        }
+
+        function renderTodos() {
+          const todos = ensureTodosArray();
+          todoList.innerHTML = "";
+
+          if (todos.length === 0) {
+            const empty = document.createElement("div");
+            empty.style.fontSize = "13px";
+            empty.style.opacity = "0.75";
+            empty.textContent = "Noch keine ToDos. Mindestens 1 ToDo setzen.";
+            todoList.appendChild(empty);
             return;
           }
 
-          const ok = await State.closeDay();
+          for (let i = 0; i < todos.length; i++) {
+            const t = todos[i] || {};
+            const row = document.createElement("div");
+            row.className = "todo-row";
+
+            const text = document.createElement("span");
+            text.textContent = String(t.text || "");
+
+            const del = document.createElement("button");
+            del.type = "button";
+            del.textContent = "Delete";
+            del.style.marginTop = "0";
+            del.onclick = function () {
+              const arr = ensureTodosArray();
+              arr.splice(i, 1);
+              entry.morning.todos = arr;
+              renderTodos();
+            };
+
+            row.appendChild(text);
+            row.appendChild(del);
+            todoList.appendChild(row);
+          }
+        }
+
+        addBtn.onclick = function () {
+          const txt = String(todoInput.value || "").trim();
+          if (!txt) return;
+          const todos = ensureTodosArray();
+          todos.push({ text: txt, done: false });
+          entry.morning.todos = todos;
+          todoInput.value = "";
+          renderTodos();
+        };
+
+        renderTodos();
+        sec.appendChild(todoCard);
+
+        root.appendChild(sec);
+
+        // Complete Morning
+        const completeBtn = document.createElement("button");
+        completeBtn.type = "button";
+        completeBtn.textContent = "Complete Morning";
+        completeBtn.onclick = async function () {
+          // write entry
+          entry.date = today;
+          if (!entry.morning) entry.morning = {};
+          entry.morning.lookingForward = lf.value;
+          entry.morning.planning = pl.value;
+
+          // Ensure todos exist even if empty
+          if (!Array.isArray(entry.morning.todos)) entry.morning.todos = [];
+
+          const okJ = await State.putJournal(entry);
+          if (!okJ) {
+            renderInlineError(root, "Konnte Journal nicht speichern.");
+            return;
+          }
+
+          const ok = await State.completeMorning();
           if (!ok) {
-            msg.textContent = "Konnte Tag nicht schließen (Vault Snapshot fehlgeschlagen).";
+            renderInlineError(root, "Konnte Status nicht auf execution setzen.");
             return;
           }
 
           Router.go("dashboard");
         };
+        root.appendChild(completeBtn);
 
-        root.appendChild(closeBtn);
-        root.appendChild(msg);
+        // Optional: if user came with focus="morning", scroll
+        if (focus === "morning") {
+          try { completeBtn.scrollIntoView({ behavior: "smooth", block: "end" }); } catch (_) {}
+        }
 
         container.appendChild(root);
         return;
       }
 
-      // ---------- CLOSED ----------
-      if (status === "closed") {
-        root.appendChild(h2("Day Closed"));
-        root.appendChild(info("Dieser Tag ist geschlossen und read-only. Details findest du im Vault."));
+      // =========================
+      // EVENING (editable)
+      // =========================
+      if (status === "evening") {
+        const sec2 = document.createElement("div");
+        sec2.className = "dash-card";
+        sec2.innerHTML = `<div style="font-weight:900; margin-bottom:10px;">Evening Review</div>`;
 
-        const toVault = document.createElement("button");
-        toVault.type = "button";
-        toVault.textContent = "Open Vault";
-        toVault.onclick = function () {
-          Router.setParams({ viewVault: true });
-          Router.go("vault");
+        const rf = document.createElement("textarea");
+        rf.placeholder = "Reflexion...";
+        rf.value = String((entry.evening && entry.evening.reflection) || "");
+
+        const rt = document.createElement("input");
+        rt.placeholder = "Tagesbewertung (z. B. 8/10)";
+        rt.value = String((entry.evening && entry.evening.rating) || "");
+
+        const gr = document.createElement("textarea");
+        gr.placeholder = "Dankbarkeit...";
+        gr.value = String((entry.evening && entry.evening.gratitude) || "");
+
+        sec2.appendChild(rf);
+        sec2.appendChild(rt);
+        sec2.appendChild(gr);
+
+        root.appendChild(sec2);
+
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.textContent = "Close Day";
+        closeBtn.onclick = async function () {
+          entry.date = today;
+          if (!entry.evening) entry.evening = {};
+          entry.evening.reflection = rf.value;
+          entry.evening.rating = rt.value;
+          entry.evening.gratitude = gr.value;
+
+          const okJ = await State.putJournal(entry);
+          if (!okJ) {
+            renderInlineError(root, "Konnte Journal nicht speichern.");
+            return;
+          }
+
+          const ok = await State.closeDay();
+          if (!ok) {
+            renderInlineError(root, "Close Day fehlgeschlagen (Vault/Status).");
+            return;
+          }
+
+          Router.go("dashboard");
         };
-        root.appendChild(toVault);
+        root.appendChild(closeBtn);
+
+        if (focus === "evening") {
+          try { closeBtn.scrollIntoView({ behavior: "smooth", block: "end" }); } catch (_) {}
+        }
 
         container.appendChild(root);
         return;
       }
 
-      // Fallback
-      root.appendChild(h2("Mindset"));
-      root.appendChild(info("Unbekannter Status. Bitte zurück zum Dashboard."));
+      // Fallback (unknown status)
+      const fb = document.createElement("div");
+      fb.className = "error";
+      fb.textContent = "Unbekannter Status: " + String(status || "");
+      root.appendChild(fb);
+
       container.appendChild(root);
 
     } catch (e) {
       console.error("Mindset mount error", e);
       container.innerHTML = "<div class='error'>Mindset failed to load</div>";
+    }
+
+    function renderInlineError(rootEl, msg) {
+      try {
+        const err = document.createElement("div");
+        err.className = "error";
+        err.style.marginTop = "12px";
+        err.textContent = String(msg || "Error");
+        rootEl.appendChild(err);
+      } catch (_) {}
     }
 
     function escapeHtml(str) {
