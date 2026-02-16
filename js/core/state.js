@@ -821,3 +821,18 @@ const State = (function () {
   };
 
 })();
+
+/* =========================================================
+   P0 FIX (iOS/Safari): ensure State is on the global object.
+   Some Safari builds do not expose top-level const on window.
+   This makes window.State + globalThis.State always available.
+   ========================================================= */
+(function () {
+  "use strict";
+  try {
+    if (typeof window !== "undefined") window.State = State;
+  } catch (_) {}
+  try {
+    if (typeof globalThis !== "undefined") globalThis.State = State;
+  } catch (_) {}
+})();
