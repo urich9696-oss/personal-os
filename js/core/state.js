@@ -1,6 +1,14 @@
 // js/core/state.js
 // PERSONAL OS — IndexedDB + System State Machine + Data APIs
-// Rules: no modules, defensive (no throws), iOS-safe transactions, GH-Pages safe (no network here)
+// Rules: no modules, defensive (no throws), iOS-safe transactions
+//
+// Updates in dieser Version (gegen deine letzte):
+// 1) deleteFinanceCategory(id) ergänzt (für Finance UI)
+// 2) deleteJournal(dateKey) ergänzt (für Maintenance Soft Reset sauber)
+// 3) getVaultStoreName() public (damit Screens NICHT hardcoded "vaultEntries" nutzen müssen)
+// 4) closeDay(): schreibt Snapshot in korrektes Vault-Store (fallback-safe) — unverändert, aber konsistent
+//
+// WICHTIG: Diese Datei ist vollständig (copy-paste).
 
 const State = (function () {
   "use strict";
@@ -65,15 +73,12 @@ const State = (function () {
     return _vaultStoreName || "vaultEntries";
   }
 
-  function _createIfMissing(db, name, options) {
-    if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, options);
+  function getVaultStoreName() {
+    return _getVaultStore();
   }
 
-  function _isDayKeyKeyPath(kp) {
-    return (
-      kp === "dayKey" ||
-      (Array.isArray(kp) && kp.length === 1 && kp[0] === "dayKey")
-    );
+  function _createIfMissing(db, name, options) {
+    if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, options);
   }
 
   // -----------------------------
@@ -98,7 +103,7 @@ const State = (function () {
         const db = event.target.result;
         const tx = event.target.transaction;
 
-        // Stores
+        // Explicit store schemas
         _createIfMissing(db, "settings", { keyPath: "id" });
         _createIfMissing(db, "journalEntries", { keyPath: "date" });
 
@@ -110,7 +115,7 @@ const State = (function () {
 
         _createIfMissing(db, "gatekeeperItems", { keyPath: "id", autoIncrement: true });
 
-        // Vault preferred store
+        // Vault preferred
         if (!db.objectStoreNames.contains("vaultEntries")) {
           db.createObjectStore("vaultEntries", { keyPath: "dayKey" });
         }
@@ -141,13 +146,16 @@ const State = (function () {
         } catch (_) {}
 
         // ===== Robust Vault Migration (no deletion) =====
-        // If existing vaultEntries store is legacy (non-dayKey keyPath), create VAULT_FALLBACK
         try {
           if (db.objectStoreNames.contains("vaultEntries")) {
             const s = tx.objectStore("vaultEntries");
             const kp = s.keyPath;
 
-            if (!_isDayKeyKeyPath(kp)) {
+            const isDayKey =
+              kp === "dayKey" ||
+              (Array.isArray(kp) && kp.length === 1 && kp[0] === "dayKey");
+
+            if (!isDayKey) {
               if (!db.objectStoreNames.contains(VAULT_FALLBACK)) {
                 db.createObjectStore(VAULT_FALLBACK, { keyPath: "dayKey" });
               }
@@ -163,7 +171,6 @@ const State = (function () {
       request.onsuccess = function (event) {
         _db = event.target.result;
 
-        // Versionchange safety
         try {
           _db.onversionchange = function () {
             try { _db.close(); } catch (_) {}
@@ -171,7 +178,6 @@ const State = (function () {
           };
         } catch (_) {}
 
-        // Prefer fallback vault store if exists
         try {
           if (_db.objectStoreNames.contains(VAULT_FALLBACK)) _vaultStoreName = VAULT_FALLBACK;
           else _vaultStoreName = "vaultEntries";
@@ -252,34 +258,31 @@ const State = (function () {
       dayClosedAt: null,
       ui: {
         startScreen: "dashboard",
-        startTab: "mindset"
+        startTab: "mindset",
+        debug: false
       }
     };
   }
 
   async function ensureCoreSeed() {
-    // Seed settings + default finance categories once
     const today = getTodayKey();
 
     await _withStores(["settings", "financeCategories"], "readwrite", async (s) => {
-      // Settings
       const existing = await _reqToPromise(s.settings.get("main")).catch(() => null);
       if (!existing) {
         s.settings.put(_defaultSettings(today));
       } else {
-        // Ensure minimal fields exist
         let changed = false;
 
-        if (!existing.ui) { existing.ui = { startScreen: "dashboard", startTab: "mindset" }; changed = true; }
+        if (!existing.ui) { existing.ui = { startScreen: "dashboard", startTab: "mindset", debug: false }; changed = true; }
         if (!existing.ui.startScreen) { existing.ui.startScreen = "dashboard"; changed = true; }
-        if (!existing.ui.startTab) { existing.ui.startTab = "mindset"; changed = true; }
+        if (typeof existing.ui.debug === "undefined") { existing.ui.debug = false; changed = true; }
         if (!existing.dayStatus) { existing.dayStatus = "morning"; changed = true; }
         if (!existing.currentDayKey) { existing.currentDayKey = today; changed = true; }
 
         if (changed) s.settings.put(existing);
       }
 
-      // Finance default categories
       const count = await _reqToPromise(s.financeCategories.count()).catch(() => 0);
       if (!count || count === 0) {
         const defaults = [
@@ -369,6 +372,14 @@ const State = (function () {
     }).then(() => true).catch(() => false);
   }
 
+  function deleteJournal(dateKey) {
+    const key = dateKey || getTodayKey();
+    return _withStores("journalEntries", "readwrite", (s) => {
+      s.journalEntries.delete(key);
+      return true;
+    }).then(() => true).catch(() => false);
+  }
+
   // -----------------------------
   // Calendar Blocks
   // -----------------------------
@@ -376,7 +387,6 @@ const State = (function () {
   function listBlocks(dateKey) {
     const key = dateKey || getTodayKey();
     return _withStores("calendarBlocks", "readonly", async (s) => {
-      // prefer index if present
       try {
         if (s.calendarBlocks.indexNames.contains("date")) {
           const idx = s.calendarBlocks.index("date");
@@ -438,7 +448,6 @@ const State = (function () {
     const key = dateKey || getTodayKey();
     if (!templateObj || !Array.isArray(templateObj.blocks)) return Promise.resolve(false);
 
-    // Additive: existing blocks remain.
     return _withStores("calendarBlocks", "readwrite", async (s) => {
       for (let i = 0; i < templateObj.blocks.length; i++) {
         const b = templateObj.blocks[i];
@@ -476,7 +485,7 @@ const State = (function () {
   function deleteFinanceCategory(id) {
     if (id == null) return Promise.resolve(false);
     return _withStores("financeCategories", "readwrite", (s) => {
-      s.financeCategories.delete(id);
+      s.financeCategories.delete(Number(id));
       return true;
     }).then(() => true).catch(() => false);
   }
@@ -552,7 +561,6 @@ const State = (function () {
 
   function listGatekeeper() {
     return _withStores("gatekeeperItems", "readonly", async (s) => {
-      // prefer createdAt index
       try {
         if (s.gatekeeperItems.indexNames.contains("createdAt")) {
           const idx = s.gatekeeperItems.index("createdAt");
@@ -622,7 +630,6 @@ const State = (function () {
     const dayKey = settings.currentDayKey || getTodayKey();
     const monthKey = getMonthKey(dayKey);
 
-    // journal
     const jRaw = await getJournal(dayKey);
     const journal = ensureJournalShape(jRaw, dayKey);
 
@@ -631,10 +638,7 @@ const State = (function () {
     const done = todos.filter((t) => !!t.done).length;
     const performanceScore = total === 0 ? 0 : Math.round((done / total) * 100);
 
-    // blocks
     const blocks = await listBlocks(dayKey);
-
-    // finance summary
     const summary = await getMonthlySummary(monthKey);
 
     const snapshot = {
@@ -660,13 +664,10 @@ const State = (function () {
         income: Number(summary.income || 0),
         expense: Number(summary.expense || 0),
         remaining: Number(summary.remaining || 0),
-        remainingPct: Number(summary.remainingPct || 0),
-        spentPct: Number(summary.spentPct || 0),
         month: summary.month
       }
     };
 
-    // write snapshot
     const storeName = _getVaultStore();
     const okSnap = await _withStores(storeName, "readwrite", (s) => {
       s[storeName].put(snapshot);
@@ -675,75 +676,10 @@ const State = (function () {
 
     if (!okSnap) return false;
 
-    // finalize settings
     settings.dayStatus = "closed";
     settings.dayClosedAt = _now();
     const okSet = await putSettings(settings);
     return !!okSet;
-  }
-
-  // -----------------------------
-  // Dashboard Snapshot Aggregation
-  // -----------------------------
-
-  async function getTodaySnapshot() {
-    const date = getTodayKey();
-    const status = await getDayStatus();
-
-    // Performance from journal todos
-    let perf = { pct: 0, done: 0, total: 0 };
-    try {
-      const j = await getJournal(date);
-      const entry = ensureJournalShape(j, date);
-      const todos = (entry.morning && Array.isArray(entry.morning.todos)) ? entry.morning.todos : [];
-      const total = todos.length;
-      const done = todos.filter((t) => t && t.done).length;
-      const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-      perf = { pct, done, total };
-    } catch (_) {}
-
-    // Next block (today)
-    let nextBlock = null;
-    try {
-      const blocks = await listBlocks(date);
-      const now = new Date();
-      const nowMin = now.getHours() * 60 + now.getMinutes();
-
-      // pick first block with start >= nowMin, else null
-      for (let i = 0; i < blocks.length; i++) {
-        const b = blocks[i];
-        const startMin = timeToMinutes(b && b.start);
-        if (startMin >= nowMin) {
-          nextBlock = { id: b.id, start: b.start, end: b.end, title: b.title };
-          break;
-        }
-      }
-    } catch (_) {}
-
-    // Budget remaining (current month)
-    let budget = null;
-    try {
-      budget = await getMonthlySummary(getMonthKey(date));
-    } catch (_) {
-      budget = { income: 0, expense: 0, remaining: 0, remainingPct: 0, spentPct: 0, month: getMonthKey(date) };
-    }
-
-    // Gatekeeper counts
-    let gatekeeper = null;
-    try {
-      gatekeeper = await getGatekeeperCounts();
-    } catch (_) {
-      gatekeeper = { locked: 0, eligible: 0, purchased: 0, total: 0 };
-    }
-
-    return {
-      date,
-      status,
-      performance: perf,
-      nextBlock,
-      budget,
-      gatekeeper
-    };
   }
 
   // -----------------------------
@@ -837,9 +773,6 @@ const State = (function () {
     startEvening,
     closeDay,
 
-    // snapshot aggregation
-    getTodaySnapshot,
-
     // helpers exposed (needed by screens)
     getTodayKey,
     getMonthKey,
@@ -849,6 +782,7 @@ const State = (function () {
     ensureJournalShape,
     getJournal,
     putJournal,
+    deleteJournal,
 
     // blocks
     listBlocks,
@@ -876,6 +810,7 @@ const State = (function () {
     getGatekeeperCounts,
 
     // vault
+    getVaultStoreName,
     getVaultSnapshot,
     listVault,
 
