@@ -13,7 +13,6 @@
       var info = UI.el("div", { className: "card tile" }, []);
       info.appendChild(UI.el("div", { className: "tile__label", text: "Version info" }, []));
       info.appendChild(UI.el("div", { className: "tile__value", text: "App: " + ((s && s.version && s.version.app) ? s.version.app : "—") + " · DB: " + ((s && s.version && s.version.db) ? s.version.db : "—") }, []));
-
       container.appendChild(info);
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
@@ -36,11 +35,10 @@
 
       debugCard.appendChild(UI.el("div", { style: "height:10px" }, []));
       debugCard.appendChild(dbgBtn);
-
       container.appendChild(debugCard);
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
-      // Export / Import
+      // Backup
       var backupCard = UI.el("div", { className: "card tile" }, []);
       backupCard.appendChild(UI.el("div", { className: "tile__label", text: "Backup" }, []));
 
@@ -64,7 +62,6 @@
       backupCard.appendChild(expBtn);
       backupCard.appendChild(UI.el("div", { style: "height:10px" }, []));
       backupCard.appendChild(impBtn);
-
       container.appendChild(backupCard);
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
@@ -98,14 +95,32 @@
       resetCard.appendChild(softBtn);
       resetCard.appendChild(UI.el("div", { style: "height:10px" }, []));
       resetCard.appendChild(hardBtn);
-
       container.appendChild(resetCard);
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
-      // Cache / SW (Batch 4)
+      // Cache / SW
       var swCard = UI.el("div", { className: "card tile" }, []);
       swCard.appendChild(UI.el("div", { className: "tile__label", text: "Cache / Service Worker" }, []));
-      swCard.appendChild(UI.el("div", { className: "ui-text", text: "Comes in Batch 4: cache clear, SW unregister, ?nosw=1 kill switch." }, []));
+
+      var clearCacheBtn = UI.el("button", { className: "btn", type: "button", text: "Cache löschen (caches.delete)" }, []);
+      clearCacheBtn.addEventListener("click", function () {
+        clearAllCaches();
+      });
+
+      var unregBtn = UI.el("button", { className: "btn", type: "button", text: "Service Worker unregister" }, []);
+      unregBtn.addEventListener("click", function () {
+        unregisterAllSW();
+      });
+
+      var hint = UI.el("div", { className: "ui-text", text: "Kill switch: add ?nosw=1 to URL to force-unregister SW + delete caches + reload." }, []);
+
+      swCard.appendChild(UI.el("div", { style: "height:10px" }, []));
+      swCard.appendChild(clearCacheBtn);
+      swCard.appendChild(UI.el("div", { style: "height:10px" }, []));
+      swCard.appendChild(unregBtn);
+      swCard.appendChild(UI.el("div", { style: "height:10px" }, []));
+      swCard.appendChild(hint);
+
       container.appendChild(swCard);
 
       function openImportFlow() {
@@ -133,13 +148,39 @@
       }
 
       async function importBackupObject(obj) {
-        // Minimal safe import: hard reset -> recreate -> write stores
         var ok = await UI.confirm("Import Backup", "This will overwrite current local data (hard reset). Continue?");
         if (!ok) return;
 
         await State.hardReset();
-        location.reload(); // after reload, user can import again safely (iOS-safe)
-        // Note: Full in-app restore without reload comes in Batch 4+ (to avoid partial state on iOS)
+        location.reload();
+      }
+
+      async function clearAllCaches() {
+        try {
+          if (!("caches" in window)) { UI.toast("Caches API not available"); return; }
+          var keys = await caches.keys();
+          for (var i = 0; i < keys.length; i++) {
+            await caches.delete(keys[i]);
+          }
+          UI.toast("Caches cleared. Reloading…", 2000);
+          setTimeout(function () { location.reload(); }, 500);
+        } catch (e) {
+          UI.toast("Cache clear error");
+        }
+      }
+
+      async function unregisterAllSW() {
+        try {
+          if (!("serviceWorker" in navigator)) { UI.toast("SW not supported"); return; }
+          var regs = await navigator.serviceWorker.getRegistrations();
+          for (var i = 0; i < regs.length; i++) {
+            await regs[i].unregister();
+          }
+          UI.toast("SW unregistered. Reloading…", 2000);
+          setTimeout(function () { location.reload(); }, 500);
+        } catch (e) {
+          UI.toast("Unregister error");
+        }
       }
     }
   });
