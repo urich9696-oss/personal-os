@@ -1,11 +1,13 @@
 // js/screens/path.js
 // PERSONAL OS — Today’s Path (Execution Mode)
-// Requirements implemented:
-// - Hard Status Enforcement: only interactive in "execution"
-// - ToDos anzeigen (aus Journal), abhaken, Performance live
-// - Kalenderblöcke (heute) anzeigen
-// - Quick Add Block (via State API)
-// - Keine Templates im Daily Flow
+// Ziele:
+// - Status Enforcement: nur in execution interaktiv, sonst Guidance + Links
+// - ToDos aus Journal anzeigen und abhaken (nur execution)
+// - Performance live
+// - Kalenderblöcke anzeigen (heute)
+// - Quick Add Block (nur execution)
+// - Keine direkten IndexedDB calls: nur State APIs
+// - Quick Nav: Dashboard / Mindset
 
 ScreenRegistry.register("path", {
   async mount(container, ctx) {
@@ -18,76 +20,125 @@ ScreenRegistry.register("path", {
       const root = document.createElement("div");
       root.className = "path";
 
-      const title = document.createElement("h2");
-      title.textContent = "Today’s Path";
-      root.appendChild(title);
+      // Header / Actions
+      const actions = document.createElement("div");
+      actions.className = "dash-quick";
+      actions.style.marginBottom = "10px";
 
-      // Hard guardrail
+      const btnDash = document.createElement("button");
+      btnDash.type = "button";
+      btnDash.textContent = "Dashboard";
+      btnDash.onclick = function () { Router.go("dashboard"); };
+
+      const btnMindset = document.createElement("button");
+      btnMindset.type = "button";
+      btnMindset.textContent = "Mindset";
+      btnMindset.onclick = function () { Router.go("mindset"); };
+
+      actions.appendChild(btnDash);
+      actions.appendChild(btnMindset);
+      root.appendChild(actions);
+
+      // Title card
+      const header = document.createElement("div");
+      header.className = "dash-card";
+      header.innerHTML = `
+        <div style="font-weight:900; margin-bottom:4px;">Today’s Path</div>
+        <div style="font-size:13px; opacity:0.75;">${escapeHtml(today)} · Status: <strong>${escapeHtml(String(status))}</strong></div>
+      `;
+      root.appendChild(header);
+
+      // Status enforcement
       if (status !== "execution") {
-        const msg = document.createElement("div");
-        msg.className = "error";
-        msg.innerHTML =
-          "<div style='font-weight:800; margin-bottom:6px;'>Execution ist gesperrt</div>" +
-          "<div style='font-size:14px; opacity:0.85;'>Du bist aktuell in <strong>" + escapeHtml(String(status)) + "</strong>. " +
-          "Execution ist nur im Status <strong>execution</strong> möglich.</div>";
-        root.appendChild(msg);
+        const lock = document.createElement("div");
+        lock.className = "dash-card";
 
-        const toMindset = document.createElement("button");
-        toMindset.type = "button";
-        toMindset.textContent = "Go to Mindset";
-        toMindset.onclick = () => Router.go("mindset");
-        root.appendChild(toMindset);
+        let msg = "";
+        let ctaText = "";
+        let ctaTarget = "";
 
+        if (status === "morning") {
+          msg = "Execution ist gesperrt. Erst Morning Setup abschließen.";
+          ctaText = "Go to Morning Setup";
+          ctaTarget = "mindset";
+        } else if (status === "evening") {
+          msg = "Execution ist vorbei. Du bist im Evening Review.";
+          ctaText = "Go to Evening Review";
+          ctaTarget = "mindset";
+        } else if (status === "closed") {
+          msg = "Der Tag ist abgeschlossen (read-only).";
+          ctaText = "Open Vault";
+          ctaTarget = "vault";
+        } else {
+          msg = "Execution ist aktuell nicht verfügbar.";
+          ctaText = "Back to Dashboard";
+          ctaTarget = "dashboard";
+        }
+
+        lock.innerHTML = `
+          <h2 style="margin-top:0;">Execution Locked</h2>
+          <div style="font-size:13px; opacity:0.8;">${escapeHtml(msg)}</div>
+        `;
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = ctaText;
+        btn.onclick = function () { Router.go(ctaTarget); };
+
+        lock.appendChild(btn);
+        root.appendChild(lock);
         container.appendChild(root);
         return;
       }
 
-      // ===== Load journal (source of ToDos) =====
-      let entry = await State.getJournal(today);
-      entry = State.ensureJournalShape(entry, today);
+      // ===== Execution Mode UI =====
 
-      const todos = (entry.morning && Array.isArray(entry.morning.todos)) ? entry.morning.todos : [];
+      // Load journal (source of truth)
+      let journal = await State.getJournal(today);
+      journal = State.ensureJournalShape(journal, today);
 
-      // ===== Performance =====
+      if (!journal.morning || !Array.isArray(journal.morning.todos)) {
+        journal.morning = journal.morning || {};
+        journal.morning.todos = [];
+      }
+
+      const todos = journal.morning.todos;
+
+      // Performance card
       const perfCard = document.createElement("div");
       perfCard.className = "dash-card";
+      root.appendChild(perfCard);
 
-      function calcPerf() {
+      function computePerformance() {
         const total = todos.length;
-        const done = todos.filter((t) => t && t.done).length;
+        const done = todos.filter((t) => !!(t && t.done)).length;
         const pct = total === 0 ? 0 : Math.round((done / total) * 100);
         return { total, done, pct };
       }
 
-      function renderPerf() {
-        const p = calcPerf();
+      function renderPerformance() {
+        const p = computePerformance();
         perfCard.innerHTML = `
           <div class="dash-meta">Performance</div>
-          <div class="dash-value">${p.pct}%</div>
-          <div style="font-size:13px; opacity:0.75; margin-top:6px;">Done: ${p.done}/${p.total}</div>
+          <div style="font-size:28px; font-weight:900; margin-top:8px;">${p.pct}%</div>
+          <div style="font-size:12px; opacity:0.75; margin-top:4px;">Todos ${p.done}/${p.total}</div>
         `;
       }
 
-      renderPerf();
-      root.appendChild(perfCard);
+      renderPerformance();
 
-      // ===== ToDo List =====
+      // Todos card
       const todoCard = document.createElement("div");
       todoCard.className = "dash-card";
-      todoCard.innerHTML = `<div style="font-weight:800; margin-bottom:8px;">ToDos</div>`;
+      todoCard.innerHTML = `<div style="font-weight:900; margin-bottom:8px;">ToDos</div>`;
       root.appendChild(todoCard);
 
       const todoList = document.createElement("div");
       todoCard.appendChild(todoList);
 
-      const todoHint = document.createElement("div");
-      todoHint.style.fontSize = "13px";
-      todoHint.style.opacity = "0.75";
-      todoHint.style.marginTop = "8px";
-      todoCard.appendChild(todoHint);
-
-      async function saveEntry() {
-        await State.putJournal(entry);
+      async function persistJournal() {
+        const ok = await State.putJournal(journal);
+        return !!ok;
       }
 
       function renderTodos() {
@@ -97,9 +148,8 @@ ScreenRegistry.register("path", {
           const empty = document.createElement("div");
           empty.style.fontSize = "13px";
           empty.style.opacity = "0.75";
-          empty.textContent = "Keine ToDos gefunden. Lege ToDos im Morning Setup an.";
+          empty.textContent = "Keine ToDos vorhanden. Erstelle sie im Morning Setup.";
           todoList.appendChild(empty);
-          todoHint.textContent = "";
           return;
         }
 
@@ -112,110 +162,80 @@ ScreenRegistry.register("path", {
           cb.type = "checkbox";
           cb.checked = !!t.done;
 
-          const text = document.createElement("span");
+          const text = document.createElement("div");
+          text.style.flex = "1";
+          text.style.fontSize = "14px";
+          text.style.opacity = cb.checked ? "0.55" : "0.95";
+          text.style.textDecoration = cb.checked ? "line-through" : "none";
           text.textContent = String(t.text || "");
 
           cb.onchange = async function () {
-            t.done = cb.checked;
+            t.done = !!cb.checked;
             todos[i] = t;
-            entry.morning.todos = todos;
-
-            await saveEntry();
-            renderPerf();
-            renderTodos(); // keep UI consistent
+            await persistJournal();
+            renderTodos();
+            renderPerformance();
           };
-
-          // strike-through when done
-          if (t.done) {
-            text.style.textDecoration = "line-through";
-            text.style.opacity = "0.65";
-          }
 
           row.appendChild(cb);
           row.appendChild(text);
           todoList.appendChild(row);
         }
-
-        const p = calcPerf();
-        todoHint.textContent = p.total === 0 ? "" : ("Nächster Schritt: Alles abhaken → dann Evening starten.");
       }
 
       renderTodos();
 
-      // ===== Blocks =====
-      const blocksTitle = document.createElement("h3");
-      blocksTitle.textContent = "Today’s Blocks";
-      root.appendChild(blocksTitle);
+      // Blocks card
+      const blocksCard = document.createElement("div");
+      blocksCard.className = "dash-card";
+      blocksCard.innerHTML = `<div style="font-weight:900; margin-bottom:8px;">Today’s Blocks</div>`;
+      root.appendChild(blocksCard);
 
-      const blocksWrap = document.createElement("div");
-      root.appendChild(blocksWrap);
+      const blocksList = document.createElement("div");
+      blocksCard.appendChild(blocksList);
+
+      async function loadBlocks() {
+        const blocks = await State.listBlocks(today);
+        return Array.isArray(blocks) ? blocks : [];
+      }
 
       async function renderBlocks() {
-        blocksWrap.innerHTML = "";
-        const blocks = await State.listBlocks(today).catch(() => []);
+        blocksList.innerHTML = "";
 
+        const blocks = await loadBlocks();
         if (!blocks || blocks.length === 0) {
           const empty = document.createElement("div");
           empty.style.fontSize = "13px";
           empty.style.opacity = "0.75";
-          empty.textContent = "Keine Blöcke. Füge unten einen Block hinzu.";
-          blocksWrap.appendChild(empty);
+          empty.textContent = "Noch keine Blöcke. Füge unten einen Block hinzu.";
+          blocksList.appendChild(empty);
           return;
         }
 
         for (let i = 0; i < blocks.length; i++) {
           const b = blocks[i] || {};
-          const div = document.createElement("div");
-          div.className = "todo-row";
-          div.style.justifyContent = "space-between";
-
-          const left = document.createElement("div");
-          left.style.display = "flex";
-          left.style.flexDirection = "column";
-
-          const top = document.createElement("div");
-          top.style.fontWeight = "800";
-          top.textContent = (b.start || "?") + "–" + (b.end || "?");
-
-          const bot = document.createElement("div");
-          bot.style.fontSize = "13px";
-          bot.style.opacity = "0.75";
-          bot.textContent = String(b.title || "");
-
-          left.appendChild(top);
-          left.appendChild(bot);
-
-          const del = document.createElement("button");
-          del.type = "button";
-          del.textContent = "Delete";
-          del.style.marginTop = "0";
-          del.onclick = async function () {
-            if (b.id == null) return;
-            const ok = await State.deleteBlock(b.id);
-            if (ok) await renderBlocks();
-          };
-
-          div.appendChild(left);
-          div.appendChild(del);
-
-          blocksWrap.appendChild(div);
+          const line = document.createElement("div");
+          line.style.fontSize = "13px";
+          line.style.opacity = "0.9";
+          line.style.marginTop = "6px";
+          line.textContent = (b.start || "") + "–" + (b.end || "") + " | " + (b.title || "");
+          blocksList.appendChild(line);
         }
       }
 
       await renderBlocks();
 
-      // ===== Quick Add Block =====
+      // Quick Add Block (execution only)
       const addCard = document.createElement("div");
       addCard.className = "dash-card";
-      addCard.innerHTML = `<div style="font-weight:800; margin-bottom:8px;">Quick Add Block</div>`;
+      addCard.innerHTML = `<div style="font-weight:900; margin-bottom:8px;">Quick Add Block</div>`;
+      root.appendChild(addCard);
 
       const startInput = document.createElement("input");
       startInput.placeholder = "Start (HH:MM)";
-      startInput.inputMode = "numeric";
 
       const endInput = document.createElement("input");
       endInput.placeholder = "End (HH:MM)";
-      endInput.inputMode = "numeric";
 
       const titleInput = document.createElement("input");
       titleInput.placeholder = "Title";
@@ -224,32 +244,25 @@ ScreenRegistry.register("path", {
       addBtn.type = "button";
       addBtn.textContent = "Add Block";
 
-      const addMsg = document.createElement("div");
-      addMsg.style.fontSize = "13px";
-      addMsg.style.opacity = "0.75";
-      addMsg.style.marginTop = "8px";
-
       addBtn.onclick = async function () {
-        addMsg.textContent = "";
-        const s = String(startInput.value || "").trim();
-        const e = String(endInput.value || "").trim();
-        const t = String(titleInput.value || "").trim();
+        const start = String(startInput.value || "").trim();
+        const end = String(endInput.value || "").trim();
+        const title = String(titleInput.value || "").trim();
 
-        if (!s || !e || !t) {
-          addMsg.textContent = "Bitte Start/Ende/Titel ausfüllen.";
+        if (!isTimeHHMM(start) || !isTimeHHMM(end) || !title) {
+          alert("Bitte gültige Zeiten (HH:MM) und einen Titel eingeben.");
           return;
         }
 
-        const id = await State.addBlock({ date: today, start: s, end: e, title: t }).catch(() => null);
+        const id = await State.addBlock({ date: today, start: start, end: end, title: title });
         if (!id) {
-          addMsg.textContent = "Konnte Block nicht speichern.";
+          alert("Block konnte nicht gespeichert werden.");
           return;
         }
 
         startInput.value = "";
         endInput.value = "";
         titleInput.value = "";
-        addMsg.textContent = "Block gespeichert.";
 
         await renderBlocks();
       };
@@ -258,33 +271,26 @@ ScreenRegistry.register("path", {
       addCard.appendChild(endInput);
       addCard.appendChild(titleInput);
       addCard.appendChild(addBtn);
-      addCard.appendChild(addMsg);
-
-      root.appendChild(addCard);
-
-      // ===== Evening Transition =====
-      const eveningBtn = document.createElement("button");
-      eveningBtn.type = "button";
-      eveningBtn.textContent = "Start Evening Review";
-      eveningBtn.onclick = async function () {
-        const ok = await State.startEvening();
-        if (ok) Router.go("mindset");
-      };
-      root.appendChild(eveningBtn);
 
       container.appendChild(root);
+
     } catch (e) {
       console.error("Path mount error", e);
       container.innerHTML = "<div class='error'>Execution failed</div>";
     }
-
-    function escapeHtml(str) {
-      return String(str || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
   }
 });
+
+function isTimeHHMM(s) {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(s || "").trim());
+  return !!m;
+}
+
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
