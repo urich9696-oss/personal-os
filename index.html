@@ -1,11 +1,10 @@
 <!-- index.html (FINAL, copy-paste)
-     PERSONAL OS — iOS PWA (Vanilla) — Stabilized Shell
+     PERSONAL OS — iOS PWA (Vanilla) — Stabilized Shell + On-Screen Diagnostics
      Wichtige Punkte:
      - GH Pages Subpath safe (relative paths)
      - Keine ES-Module
-     - Crash-safe Nav Sync via Router + personalos:navigated
-     - Dashboard ist Startscreen (kein Tab)
-     - Vault Screen eingebunden
+     - On-screen Diagnostik für Safari (State missing Ursache A vs B)
+     - Auto-Retry für state.js mit Cache-Bust (behebt stale SW/Cache in vielen Fällen)
 -->
 <!DOCTYPE html>
 <html lang="de">
@@ -32,12 +31,18 @@
   <div class="app-shell">
     <!-- App content root: Router mounts screens here -->
     <main id="app-content" class="app-content" aria-label="App content">
-      <!-- Router will render dashboard here on boot -->
+      <!-- Default visible loader -->
       <div class="dash-card" style="margin-top: 12px;">
         <div style="font-weight:900;">Loading…</div>
         <div style="font-size:13px; opacity:0.75; margin-top:6px;">
           Wenn dieser Screen hängen bleibt: Service Worker Cache löschen (System → Clear Cache) oder Hard Reload.
         </div>
+      </div>
+
+      <!-- On-screen diagnostics (hidden unless error) -->
+      <div id="diag-card" class="dash-card" style="margin-top: 12px; border: 1px solid rgba(160, 60, 60, 0.25); display:none;">
+        <div style="font-weight:900; color:#7a1f1f;">Diagnostics</div>
+        <pre id="diag-log" style="white-space:pre-wrap; font-size:12px; opacity:0.85; margin-top:8px;"></pre>
       </div>
     </main>
 
@@ -64,6 +69,133 @@
       </button>
     </nav>
   </div>
+
+  <!-- ===== On-screen resource + runtime diagnostics (NO DevTools) ===== -->
+  <script>
+    (function () {
+      "use strict";
+
+      var diagCard = null;
+      var diagLog = null;
+      var lines = [];
+      var startedAt = Date.now();
+      var retriedState = false;
+
+      function $(id) { try { return document.getElementById(id); } catch (_) { return null; } }
+
+      function showDiag() {
+        if (!diagCard) diagCard = $("diag-card");
+        if (!diagLog) diagLog = $("diag-log");
+        if (diagCard) diagCard.style.display = "block";
+        if (diagLog) diagLog.textContent = lines.join("\n");
+      }
+
+      function log(line) {
+        lines.push(line);
+        showDiag();
+      }
+
+      function safeStr(v) {
+        try { return String(v); } catch (_) { return "[unprintable]"; }
+      }
+
+      // Capture script/resource load errors (e.g. 404 state.js)
+      window.addEventListener("error", function (ev) {
+        try {
+          // Resource errors: ev.target.src exists
+          var t = ev && ev.target;
+          var src = t && t.tagName === "SCRIPT" ? t.src : null;
+          if (src) {
+            log("RESOURCE ERROR: failed to load <script>: " + src);
+          } else {
+            // Runtime errors
+            var msg = ev && ev.message ? ev.message : "(no message)";
+            var file = ev && ev.filename ? ev.filename : "(no file)";
+            var ln = ev && ev.lineno ? ev.lineno : "(no line)";
+            log("RUNTIME ERROR: " + safeStr(msg) + " @ " + safeStr(file) + ":" + safeStr(ln));
+          }
+        } catch (_) {}
+      }, true);
+
+      window.addEventListener("unhandledrejection", function (ev) {
+        try {
+          var r = ev && ev.reason ? ev.reason : "(no reason)";
+          log("UNHANDLED PROMISE: " + safeStr(r));
+        } catch (_) {}
+      });
+
+      function hasState() {
+        try {
+          // check both identifier and window binding
+          var t1 = (typeof State);
+          var t2 = (typeof window.State);
+          return (t1 !== "undefined") || (t2 !== "undefined");
+        } catch (_) {
+          try { return (typeof window.State) !== "undefined"; } catch (_) {}
+        }
+        return false;
+      }
+
+      function loadScript(src, cb) {
+        try {
+          var s = document.createElement("script");
+          s.src = src;
+          s.async = false;
+          s.onload = function () { try { cb(true); } catch (_) {} };
+          s.onerror = function () { try { cb(false); } catch (_) {} };
+          document.head.appendChild(s);
+        } catch (_) {
+          try { cb(false); } catch (_) {}
+        }
+      }
+
+      function postCheck(label) {
+        var ms = Date.now() - startedAt;
+        var stateId, stateWin;
+        try { stateId = (typeof State); } catch (_) { stateId = "throws"; }
+        try { stateWin = (typeof window.State); } catch (_) { stateWin = "throws"; }
+
+        log(label + " @+" + ms + "ms");
+        log("typeof State = " + stateId);
+        log("typeof window.State = " + stateWin);
+        try { log("location.href = " + safeStr(location.href)); } catch (_) {}
+      }
+
+      // After initial load, verify State. If missing, retry state.js with cache-bust.
+      function verifyAndRecover() {
+        postCheck("BOOT CHECK");
+        if (hasState()) {
+          log("OK: State is present. If UI still shows 'State missing', your error-screen is checking something else.");
+          return;
+        }
+
+        // State missing -> almost certainly file not executed (SW/404/path/cached shell).
+        log("FAIL: State missing. Attempting one-time recovery load with cache-bust...");
+
+        if (retriedState) return;
+        retriedState = true;
+
+        var bust = Date.now();
+        var retrySrc = "./js/core/state.js?cb=" + bust;
+
+        loadScript(retrySrc, function (ok) {
+          log("Retry load state.js => " + (ok ? "onload" : "onerror") + " (" + retrySrc + ")");
+          // Re-check
+          postCheck("AFTER RETRY");
+          if (hasState()) {
+            log("RECOVERED: State is now present after retry. Root cause is stale SW/cache or stale shell referencing missing asset.");
+            log("ACTION: Now go to System → Clear Cache Storage / Unregister Service Worker, then reload once.");
+          } else {
+            log("STILL FAIL: State still missing after retry. Root cause is likely path/deploy issue (state.js not reachable) or SW intercept returning stale/blocked response.");
+            log("NEXT: Post your service-worker.js and boot.js (full). We will harden update flow + ensure correct subpath caching.");
+          }
+        });
+      }
+
+      // run after initial parsing settled
+      setTimeout(verifyAndRecover, 1200);
+    })();
+  </script>
 
   <!-- Core (NO modules, correct load order) -->
   <script src="./js/core/state.js"></script>
@@ -132,7 +264,6 @@
         }
       }
 
-      // Hook Router.go so tab highlight stays correct even when navigation happens via buttons inside screens
       function hookRouter() {
         try {
           if (!window.Router || typeof window.Router.go !== "function") return;
@@ -152,7 +283,6 @@
         }
       }
 
-      // Also sync via event fired after navigation (Router dispatches personalos:navigated)
       function bindNavSyncEvent() {
         try {
           window.addEventListener("personalos:navigated", function (ev) {
@@ -167,8 +297,6 @@
       bindNav();
       hookRouter();
       bindNavSyncEvent();
-
-      // Start: dashboard => no active tab
       setActiveTab("dashboard");
     })();
   </script>
