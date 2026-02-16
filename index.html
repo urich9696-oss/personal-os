@@ -1,92 +1,154 @@
-<!doctype html>
+<!-- index.html (FINAL, copy-paste) -->
+<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
+
+  <title>Personal OS</title>
+
+  <!-- PWA / iOS -->
+  <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#F6F5F2" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Personal OS" />
-
-  <title>Personal OS — The Architecture of Excellence.</title>
-
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./assets/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
-
-  <!-- Optional: Online-Font (offline fallback in CSS) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="./css/styles.css" />
 </head>
 
 <body>
-  <div id="app" class="app">
-    <header class="header">
-      <div class="brand">
-        <div class="brand-title">Personal OS</div>
-        <div class="brand-subtitle">The Architecture of Excellence.</div>
-      </div>
+  <div class="app-shell">
 
-      <div class="header-right">
-        <div id="netBadge" class="net-badge" title="Network status">—</div>
-      </div>
-    </header>
+    <!-- App content root: Router mounts screens here -->
+    <main id="app-content" class="app-content" aria-label="App content">
+      <!-- Router will render dashboard here on boot -->
+    </main>
 
-    <main id="screenRoot" class="screen-root" aria-live="polite"></main>
-
-    <!-- Bottom Nav visible even on Dashboard -->
-    <nav id="bottomNav" class="bottom-nav" aria-label="Primary">
-      <button type="button" class="nav-btn" data-screen="mindset" aria-label="Mindset">
+    <!-- Bottom navigation: Dashboard is NOT a tab -->
+    <nav class="bottom-nav" aria-label="Bottom navigation">
+      <button class="nav-btn" type="button" data-target="mindset" aria-label="Mindset">
         <span class="nav-icon">◻︎</span>
         <span class="nav-text">Mindset</span>
       </button>
 
-      <button type="button" class="nav-btn" data-screen="path" aria-label="Today’s Path">
+      <button class="nav-btn" type="button" data-target="path" aria-label="Today’s Path">
         <span class="nav-icon">↦</span>
-        <span class="nav-text">Today’s Path</span>
+        <span class="nav-text">Today</span>
       </button>
 
-      <button type="button" class="nav-btn" data-screen="maintenance" aria-label="Maintenance">
+      <button class="nav-btn" type="button" data-target="maintenance" aria-label="Maintenance">
         <span class="nav-icon">⚙︎</span>
-        <span class="nav-text">Maintenance</span>
+        <span class="nav-text">System</span>
       </button>
 
-      <button type="button" class="nav-btn" data-screen="finance" aria-label="Finance">
+      <button class="nav-btn" type="button" data-target="finance" aria-label="Finance">
         <span class="nav-icon">◎</span>
         <span class="nav-text">Finance</span>
       </button>
     </nav>
 
-    <div class="safe-bottom"></div>
   </div>
 
-  <div id="toastRoot" class="toast-root" aria-live="polite" aria-relevant="additions"></div>
-  <div id="modalRoot" class="modal-root" aria-hidden="true"></div>
-
-  <!-- Core (NO modules) -->
+  <!-- Core (NO modules, correct load order) -->
   <script src="./js/core/state.js"></script>
-  <script src="./js/core/ui.js"></script>
   <script src="./js/core/registry.js"></script>
   <script src="./js/core/router.js"></script>
-  <script src="./js/core/boot.js"></script>
 
-  <!-- Screens (register only; lazy mount later) -->
+  <!-- Screens (register only) -->
   <script src="./js/screens/dashboard.js"></script>
   <script src="./js/screens/mindset.js"></script>
   <script src="./js/screens/path.js"></script>
   <script src="./js/screens/maintenance.js"></script>
   <script src="./js/screens/finance.js"></script>
 
+  <!-- Boot LAST -->
+  <script src="./js/core/boot.js"></script>
+
+  <!-- Bottom Nav + Active State Sync (crash-safe, iOS touch-safe) -->
   <script>
     (function () {
-      if (!window.POS || !window.POS.boot) {
-        console.error("POS boot missing");
-        return;
+      "use strict";
+
+      var TAB_SCREENS = { mindset: true, path: true, maintenance: true, finance: true };
+
+      function setActiveTab(screenName) {
+        try {
+          var btns = document.querySelectorAll(".nav-btn");
+          for (var i = 0; i < btns.length; i++) btns[i].classList.remove("active");
+
+          if (!TAB_SCREENS[screenName]) return; // Dashboard => no active tab
+
+          var btn = document.querySelector('.nav-btn[data-target="' + screenName + '"]');
+          if (btn) btn.classList.add("active");
+        } catch (e) {
+          console.error("setActiveTab error", e);
+        }
       }
-      window.POS.boot.start();
+
+      function bindNav() {
+        try {
+          var btns = document.querySelectorAll(".nav-btn");
+          for (var i = 0; i < btns.length; i++) {
+            (function (btn) {
+              function handler(e) {
+                try {
+                  if (e && e.preventDefault) e.preventDefault();
+                  var target = btn.getAttribute("data-target");
+                  if (!target) return;
+
+                  setActiveTab(target);
+
+                  if (window.Router && typeof window.Router.go === "function") {
+                    window.Router.go(target);
+                  }
+                } catch (err) {
+                  console.error("nav handler error", err);
+                }
+              }
+
+              btn.addEventListener("click", handler, { passive: false });
+              btn.addEventListener("touchend", handler, { passive: false });
+            })(btns[i]);
+          }
+        } catch (e) {
+          console.error("bindNav failed", e);
+        }
+      }
+
+      // Hook Router.go so tab highlight stays correct even when navigation happens via buttons inside screens
+      function hookRouter() {
+        try {
+          if (!window.Router || typeof window.Router.go !== "function") return;
+
+          if (window.Router.__navHooked) return;
+          window.Router.__navHooked = true;
+
+          var originalGo = window.Router.go;
+
+          window.Router.go = function (screenName) {
+            try {
+              setActiveTab(String(screenName || ""));
+            } catch (_) {}
+
+            try {
+              return originalGo.apply(window.Router, arguments);
+            } catch (e) {
+              console.error("Router.go wrapper error", e);
+            }
+          };
+        } catch (e) {
+          console.error("hookRouter failed", e);
+        }
+      }
+
+      bindNav();
+      hookRouter();
+      setActiveTab("dashboard"); // no active tab on start
     })();
   </script>
 </body>
