@@ -1,838 +1,600 @@
-// js/core/state.js
-// PERSONAL OS — IndexedDB + System State Machine + Data APIs
-// Rules: no modules, defensive (no throws), iOS-safe transactions
-//
-// Updates in dieser Version (gegen deine letzte):
-// 1) deleteFinanceCategory(id) ergänzt (für Finance UI)
-// 2) deleteJournal(dateKey) ergänzt (für Maintenance Soft Reset sauber)
-// 3) getVaultStoreName() public (damit Screens NICHT hardcoded "vaultEntries" nutzen müssen)
-// 4) closeDay(): schreibt Snapshot in korrektes Vault-Store (fallback-safe) — unverändert, aber konsistent
-//
-// WICHTIG: Diese Datei ist vollständig (copy-paste).
-
-const State = (function () {
+(function () {
   "use strict";
 
-  const DB_NAME = "personalOS";
-  const DB_VERSION = 5; // bump when schema changes
+  // PERSONAL OS — State (Business API)
+  // - The ONLY layer screens may call
+  // - Owns defaults, migrations, and all CRUD
+  // - Uses DB.* (db.js) internally
 
-  let _db = null;
-  let _openPromise = null;
+  var State = {};
 
-  // Vault store resolver (handles legacy vault schema without data loss)
-  let _vaultStoreName = "vaultEntries"; // preferred if keyPath dayKey
-  const VAULT_FALLBACK = "vaultEntriesByDay";
+  var DB_NAME = "personalOS";
+  var DB_VERSION = 1;
 
-  // -----------------------------
-  // Helpers
-  // -----------------------------
-
-  function _now() { return Date.now(); }
-
-  function getTodayKey() {
-    return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  function nowISO() {
+    return new Date().toISOString();
   }
 
-  function getMonthKey(dateKey) {
-    return String(dateKey || getTodayKey()).slice(0, 7); // YYYY-MM
+  function todayKey() {
+    return UI.formatDateISO(new Date());
   }
 
-  function timeToMinutes(str) {
-    if (!str) return 0;
-    const parts = String(str).split(":");
-    const h = parseInt(parts[0] || "0", 10);
-    const m = parseInt(parts[1] || "0", 10);
-    return h * 60 + m;
+  function monthKeyFromDateISO(dateISO) {
+    // "YYYY-MM-DD" -> "YYYY-MM"
+    if (!dateISO || dateISO.length < 7) return UI.formatDateISO(new Date()).slice(0, 7);
+    return dateISO.slice(0, 7);
   }
 
-  function _reqToPromise(req) {
-    return new Promise((resolve, reject) => {
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error || new Error("IDB request failed"));
-    });
-  }
-
-  function _txDone(tx) {
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => reject(tx.error || new Error("IDB tx error"));
-      tx.onabort = () => reject(tx.error || new Error("IDB tx abort"));
-    });
-  }
-
-  function _safe(fn, fallback) {
-    try { return fn(); } catch (_) { return fallback; }
-  }
-
-  function _getVaultStore() {
-    try {
-      if (_db && _db.objectStoreNames && _db.objectStoreNames.contains(VAULT_FALLBACK)) {
-        return VAULT_FALLBACK;
-      }
-    } catch (_) {}
-    return _vaultStoreName || "vaultEntries";
-  }
-
-  function getVaultStoreName() {
-    return _getVaultStore();
-  }
-
-  function _createIfMissing(db, name, options) {
-    if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, options);
-  }
-
-  // -----------------------------
-  // Open / Upgrade
-  // -----------------------------
-
-  function openDB() {
-    if (_db) return Promise.resolve(_db);
-    if (_openPromise) return _openPromise;
-
-    _openPromise = new Promise((resolve, reject) => {
-      let request;
-      try {
-        request = indexedDB.open(DB_NAME, DB_VERSION);
-      } catch (e) {
-        _openPromise = null;
-        reject(e);
-        return;
+  function upgrade(db, tx, oldVersion, newVersion) {
+    // Version 1: create all final stores + indexes
+    if (oldVersion < 1) {
+      // settings (key: "main")
+      if (!db.objectStoreNames.contains("settings")) {
+        db.createObjectStore("settings", { keyPath: "key" });
       }
 
-      request.onupgradeneeded = function (event) {
-        const db = event.target.result;
-        const tx = event.target.transaction;
-
-        // Explicit store schemas
-        _createIfMissing(db, "settings", { keyPath: "id" });
-        _createIfMissing(db, "journalEntries", { keyPath: "date" });
-
-        _createIfMissing(db, "calendarBlocks", { keyPath: "id", autoIncrement: true });
-        _createIfMissing(db, "dayTemplates", { keyPath: "id", autoIncrement: true });
-
-        _createIfMissing(db, "financeCategories", { keyPath: "id", autoIncrement: true });
-        _createIfMissing(db, "financeTransactions", { keyPath: "id", autoIncrement: true });
-
-        _createIfMissing(db, "gatekeeperItems", { keyPath: "id", autoIncrement: true });
-
-        // Vault preferred
-        if (!db.objectStoreNames.contains("vaultEntries")) {
-          db.createObjectStore("vaultEntries", { keyPath: "dayKey" });
-        }
-
-        // Indexes
-        try {
-          if (db.objectStoreNames.contains("calendarBlocks")) {
-            const s = tx.objectStore("calendarBlocks");
-            if (!s.indexNames.contains("date")) s.createIndex("date", "date", { unique: false });
-          }
-        } catch (_) {}
-
-        try {
-          if (db.objectStoreNames.contains("financeTransactions")) {
-            const s = tx.objectStore("financeTransactions");
-            if (!s.indexNames.contains("month")) s.createIndex("month", "month", { unique: false });
-            if (!s.indexNames.contains("date")) s.createIndex("date", "date", { unique: false });
-          }
-        } catch (_) {}
-
-        try {
-          if (db.objectStoreNames.contains("gatekeeperItems")) {
-            const s = tx.objectStore("gatekeeperItems");
-            if (!s.indexNames.contains("status")) s.createIndex("status", "status", { unique: false });
-            if (!s.indexNames.contains("unlockAt")) s.createIndex("unlockAt", "unlockAt", { unique: false });
-            if (!s.indexNames.contains("createdAt")) s.createIndex("createdAt", "createdAt", { unique: false });
-          }
-        } catch (_) {}
-
-        // ===== Robust Vault Migration (no deletion) =====
-        try {
-          if (db.objectStoreNames.contains("vaultEntries")) {
-            const s = tx.objectStore("vaultEntries");
-            const kp = s.keyPath;
-
-            const isDayKey =
-              kp === "dayKey" ||
-              (Array.isArray(kp) && kp.length === 1 && kp[0] === "dayKey");
-
-            if (!isDayKey) {
-              if (!db.objectStoreNames.contains(VAULT_FALLBACK)) {
-                db.createObjectStore(VAULT_FALLBACK, { keyPath: "dayKey" });
-              }
-              _vaultStoreName = VAULT_FALLBACK;
-            } else {
-              _vaultStoreName = "vaultEntries";
-            }
-          }
-        } catch (_) {}
-        // ===== END Migration =====
-      };
-
-      request.onsuccess = function (event) {
-        _db = event.target.result;
-
-        try {
-          _db.onversionchange = function () {
-            try { _db.close(); } catch (_) {}
-            _db = null;
-          };
-        } catch (_) {}
-
-        try {
-          if (_db.objectStoreNames.contains(VAULT_FALLBACK)) _vaultStoreName = VAULT_FALLBACK;
-          else _vaultStoreName = "vaultEntries";
-        } catch (_) {
-          _vaultStoreName = "vaultEntries";
-        }
-
-        resolve(_db);
-      };
-
-      request.onerror = function () {
-        _db = null;
-        _openPromise = null;
-        reject(request.error || new Error("IndexedDB failed"));
-      };
-    });
-
-    return _openPromise;
-  }
-
-  function _withStores(storeNames, mode, fn) {
-    return openDB().then((db) => {
-      return new Promise((resolve, reject) => {
-        let tx;
-        try {
-          tx = db.transaction(storeNames, mode);
-        } catch (e) {
-          reject(e);
-          return;
-        }
-
-        const stores = {};
-        (Array.isArray(storeNames) ? storeNames : [storeNames]).forEach((n) => {
-          stores[n] = tx.objectStore(n);
-        });
-
-        let result;
-        try {
-          result = fn(stores, tx);
-        } catch (e) {
-          try { tx.abort(); } catch (_) {}
-          reject(e);
-          return;
-        }
-
-        Promise.resolve(result)
-          .then(() => _txDone(tx))
-          .then(() => resolve(result))
-          .catch((e) => reject(e));
-      });
-    });
-  }
-
-  // -----------------------------
-  // Settings + Day State Machine
-  // -----------------------------
-
-  function getSettings() {
-    return _withStores("settings", "readonly", (s) => _reqToPromise(s.settings.get("main")))
-      .then((res) => res || null)
-      .catch(() => null);
-  }
-
-  function putSettings(settings) {
-    return _withStores("settings", "readwrite", (s) => {
-      s.settings.put(settings);
-      return true;
-    }).then(() => true).catch(() => false);
-  }
-
-  function _defaultSettings(todayKey) {
-    return {
-      id: "main",
-      currentDayKey: todayKey,
-      dayStatus: "morning", // morning | execution | evening | closed
-      morningCompletedAt: null,
-      eveningStartedAt: null,
-      dayClosedAt: null,
-      ui: {
-        startScreen: "dashboard",
-        startTab: "mindset",
-        debug: false
-      }
-    };
-  }
-
-  async function ensureCoreSeed() {
-    const today = getTodayKey();
-
-    await _withStores(["settings", "financeCategories"], "readwrite", async (s) => {
-      const existing = await _reqToPromise(s.settings.get("main")).catch(() => null);
-      if (!existing) {
-        s.settings.put(_defaultSettings(today));
-      } else {
-        let changed = false;
-
-        if (!existing.ui) { existing.ui = { startScreen: "dashboard", startTab: "mindset", debug: false }; changed = true; }
-        if (!existing.ui.startScreen) { existing.ui.startScreen = "dashboard"; changed = true; }
-        if (typeof existing.ui.debug === "undefined") { existing.ui.debug = false; changed = true; }
-        if (!existing.dayStatus) { existing.dayStatus = "morning"; changed = true; }
-        if (!existing.currentDayKey) { existing.currentDayKey = today; changed = true; }
-
-        if (changed) s.settings.put(existing);
+      // journalEntries (key: date "YYYY-MM-DD")
+      if (!db.objectStoreNames.contains("journalEntries")) {
+        db.createObjectStore("journalEntries", { keyPath: "date" });
       }
 
-      const count = await _reqToPromise(s.financeCategories.count()).catch(() => 0);
-      if (!count || count === 0) {
-        const defaults = [
-          { type: "income", name: "Salary", order: 1 },
-          { type: "income", name: "Other", order: 2 },
-          { type: "expense", name: "Rent", order: 1 },
-          { type: "expense", name: "Food", order: 2 },
-          { type: "expense", name: "Transport", order: 3 },
-          { type: "expense", name: "Subscriptions", order: 4 },
-          { type: "expense", name: "Leisure", order: 5 },
-          { type: "expense", name: "Essentials", order: 6 }
-        ];
-        defaults.forEach((c) => s.financeCategories.add(c));
+      // calendarBlocks (autoIncrement id)
+      if (!db.objectStoreNames.contains("calendarBlocks")) {
+        var sBlocks = db.createObjectStore("calendarBlocks", { keyPath: "id", autoIncrement: true });
+        sBlocks.createIndex("date", "date", { unique: false });
       }
-      return true;
-    }).catch(() => false);
-  }
 
-  async function ensureTodayState() {
-    const today = getTodayKey();
-    await ensureCoreSeed();
+      // dayTemplates (autoIncrement id)
+      if (!db.objectStoreNames.contains("dayTemplates")) {
+        db.createObjectStore("dayTemplates", { keyPath: "id", autoIncrement: true });
+      }
 
-    const settings = await getSettings();
-    if (!settings) {
-      await putSettings(_defaultSettings(today));
-      return true;
+      // financeCategories (autoIncrement id)
+      if (!db.objectStoreNames.contains("financeCategories")) {
+        var sCat = db.createObjectStore("financeCategories", { keyPath: "id", autoIncrement: true });
+        sCat.createIndex("type", "type", { unique: false });
+        sCat.createIndex("order", "order", { unique: false });
+      }
+
+      // financeTransactions (autoIncrement id)
+      if (!db.objectStoreNames.contains("financeTransactions")) {
+        var sTx = db.createObjectStore("financeTransactions", { keyPath: "id", autoIncrement: true });
+        sTx.createIndex("month", "month", { unique: false });
+        sTx.createIndex("date", "date", { unique: false });
+        sTx.createIndex("type", "type", { unique: false });
+        sTx.createIndex("categoryId", "categoryId", { unique: false });
+      }
+
+      // gatekeeperItems (autoIncrement id)
+      if (!db.objectStoreNames.contains("gatekeeperItems")) {
+        var sGk = db.createObjectStore("gatekeeperItems", { keyPath: "id", autoIncrement: true });
+        sGk.createIndex("status", "status", { unique: false });
+        sGk.createIndex("unlockAt", "unlockAt", { unique: false });
+        sGk.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      // vaultEntries (key: dayKey)
+      if (!db.objectStoreNames.contains("vaultEntries")) {
+        db.createObjectStore("vaultEntries", { keyPath: "dayKey" });
+      }
+
+      // maintenanceEssentials (key: "main")
+      if (!db.objectStoreNames.contains("maintenanceEssentials")) {
+        db.createObjectStore("maintenanceEssentials", { keyPath: "key" });
+      }
+
+      // maintenanceRoutines (key: "main")
+      if (!db.objectStoreNames.contains("maintenanceRoutines")) {
+        db.createObjectStore("maintenanceRoutines", { keyPath: "key" });
+      }
     }
+  }
 
-    if (settings.currentDayKey !== today) {
-      settings.currentDayKey = today;
-      settings.dayStatus = "morning";
-      settings.morningCompletedAt = null;
-      settings.eveningStartedAt = null;
-      settings.dayClosedAt = null;
-      await putSettings(settings);
-    }
+  async function init() {
+    await DB.init(DB_NAME, DB_VERSION, upgrade);
 
+    // Ensure base docs exist
+    await ensureMainSettings();
+    await ensureMaintenanceDefaults();
+    await ensureFinanceDefaults();
     return true;
   }
 
-  async function getDayStatus() {
-    const s = await getSettings();
-    return (s && s.dayStatus) ? s.dayStatus : "morning";
-  }
+  // ---------- Defaults ----------
+  async function ensureMainSettings() {
+    var s = await DB.get("settings", "main");
+    if (s) return s;
 
-  async function completeMorning() {
-    const s = await getSettings();
-    if (!s || s.dayStatus !== "morning") return false;
-    s.dayStatus = "execution";
-    s.morningCompletedAt = _now();
-    return await putSettings(s);
-  }
-
-  async function startEvening() {
-    const s = await getSettings();
-    if (!s || s.dayStatus !== "execution") return false;
-    s.dayStatus = "evening";
-    s.eveningStartedAt = _now();
-    return await putSettings(s);
-  }
-
-  // -----------------------------
-  // Journal
-  // -----------------------------
-
-  function ensureJournalShape(entry, dateKey) {
-    if (entry) return entry;
-    return {
-      date: dateKey,
-      morning: { lookingForward: "", planning: "", todos: [] },
-      evening: { reflection: "", rating: "", gratitude: "" }
-    };
-  }
-
-  function getJournal(dateKey) {
-    const key = dateKey || getTodayKey();
-    return _withStores("journalEntries", "readonly", (s) => _reqToPromise(s.journalEntries.get(key)))
-      .then((res) => res || null)
-      .catch(() => null);
-  }
-
-  function putJournal(entry) {
-    if (!entry || !entry.date) return Promise.resolve(false);
-    return _withStores("journalEntries", "readwrite", (s) => {
-      s.journalEntries.put(entry);
-      return true;
-    }).then(() => true).catch(() => false);
-  }
-
-  function deleteJournal(dateKey) {
-    const key = dateKey || getTodayKey();
-    return _withStores("journalEntries", "readwrite", (s) => {
-      s.journalEntries.delete(key);
-      return true;
-    }).then(() => true).catch(() => false);
-  }
-
-  // -----------------------------
-  // Calendar Blocks
-  // -----------------------------
-
-  function listBlocks(dateKey) {
-    const key = dateKey || getTodayKey();
-    return _withStores("calendarBlocks", "readonly", async (s) => {
-      try {
-        if (s.calendarBlocks.indexNames.contains("date")) {
-          const idx = s.calendarBlocks.index("date");
-          const rows = await _reqToPromise(idx.getAll(key)).catch(() => []);
-          (rows || []).sort((a, b) => timeToMinutes(a && a.start) - timeToMinutes(b && b.start));
-          return rows || [];
-        }
-      } catch (_) {}
-      const all = await _reqToPromise(s.calendarBlocks.getAll()).catch(() => []);
-      const rows2 = (all || []).filter((b) => b && b.date === key);
-      rows2.sort((a, b) => timeToMinutes(a && a.start) - timeToMinutes(b && b.start));
-      return rows2;
-    }).catch(() => []);
-  }
-
-  function addBlock(block) {
-    if (!block || !block.date || !block.start || !block.end || !block.title) return Promise.resolve(null);
-    return _withStores("calendarBlocks", "readwrite", (s) => _reqToPromise(s.calendarBlocks.add(block)))
-      .then((id) => id)
-      .catch(() => null);
-  }
-
-  function deleteBlock(id) {
-    if (id == null) return Promise.resolve(false);
-    return _withStores("calendarBlocks", "readwrite", (s) => {
-      s.calendarBlocks.delete(id);
-      return true;
-    }).then(() => true).catch(() => false);
-  }
-
-  // -----------------------------
-  // Templates (Day Profiles)
-  // -----------------------------
-
-  function listTemplates() {
-    return _withStores("dayTemplates", "readonly", async (s) => {
-      const all = await _reqToPromise(s.dayTemplates.getAll()).catch(() => []);
-      (all || []).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-      return all || [];
-    }).catch(() => []);
-  }
-
-  function addTemplate(tpl) {
-    if (!tpl || !tpl.name || !Array.isArray(tpl.blocks)) return Promise.resolve(null);
-    return _withStores("dayTemplates", "readwrite", (s) => _reqToPromise(s.dayTemplates.add(tpl)))
-      .then((id) => id)
-      .catch(() => null);
-  }
-
-  function deleteTemplate(id) {
-    if (id == null) return Promise.resolve(false);
-    return _withStores("dayTemplates", "readwrite", (s) => {
-      s.dayTemplates.delete(id);
-      return true;
-    }).then(() => true).catch(() => false);
-  }
-
-  function applyTemplateToDate(templateObj, dateKey) {
-    const key = dateKey || getTodayKey();
-    if (!templateObj || !Array.isArray(templateObj.blocks)) return Promise.resolve(false);
-
-    return _withStores("calendarBlocks", "readwrite", async (s) => {
-      for (let i = 0; i < templateObj.blocks.length; i++) {
-        const b = templateObj.blocks[i];
-        if (!b || !b.start || !b.end || !b.title) continue;
-        s.calendarBlocks.add({ date: key, start: b.start, end: b.end, title: b.title });
+    var base = {
+      key: "main",
+      app: {
+        name: "PERSONAL OS",
+        slogan: "The Architecture of Excellence."
+      },
+      version: {
+        db: DB_VERSION,
+        app: "0.1.0"
+      },
+      createdAt: nowISO(),
+      debug: {
+        enabled: false
       }
-      return true;
-    }).then(() => true).catch(() => false);
+    };
+    await DB.put("settings", base);
+    return base;
   }
 
-  // -----------------------------
-  // Finance
-  // -----------------------------
-
-  function listFinanceCategories() {
-    return _withStores("financeCategories", "readonly", async (s) => {
-      const all = await _reqToPromise(s.financeCategories.getAll()).catch(() => []);
-      (all || []).sort((a, b) => {
-        const ta = String(a.type || "");
-        const tb = String(b.type || "");
-        if (ta === tb) return (a.order || 999) - (b.order || 999);
-        return ta.localeCompare(tb);
+  async function ensureMaintenanceDefaults() {
+    var e = await DB.get("maintenanceEssentials", "main");
+    if (!e) {
+      await DB.put("maintenanceEssentials", {
+        key: "main",
+        categories: [] // {id, name, items:[{id,name,price,frequency,usage,imageDataUrl?}]}
       });
-      return all || [];
-    }).catch(() => []);
-  }
-
-  function addFinanceCategory(cat) {
-    if (!cat || !cat.type || !cat.name) return Promise.resolve(null);
-    return _withStores("financeCategories", "readwrite", (s) => _reqToPromise(s.financeCategories.add(cat)))
-      .then((id) => id)
-      .catch(() => null);
-  }
-
-  function deleteFinanceCategory(id) {
-    if (id == null) return Promise.resolve(false);
-    return _withStores("financeCategories", "readwrite", (s) => {
-      s.financeCategories.delete(Number(id));
-      return true;
-    }).then(() => true).catch(() => false);
-  }
-
-  function addTransaction(txn) {
-    if (!txn || !txn.date || !txn.type || txn.amount == null) return Promise.resolve(null);
-    const normalized = Object.assign({}, txn);
-    normalized.amount = Number(normalized.amount || 0);
-    normalized.month = normalized.month || getMonthKey(normalized.date);
-
-    return _withStores("financeTransactions", "readwrite", (s) => _reqToPromise(s.financeTransactions.add(normalized)))
-      .then((id) => id)
-      .catch(() => null);
-  }
-
-  function listTransactions(monthKey) {
-    const m = monthKey || getMonthKey(getTodayKey());
-    return _withStores("financeTransactions", "readonly", async (s) => {
-      try {
-        if (s.financeTransactions.indexNames.contains("month")) {
-          const idx = s.financeTransactions.index("month");
-          const rows = await _reqToPromise(idx.getAll(m)).catch(() => []);
-          (rows || []).sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-          return rows || [];
-        }
-      } catch (_) {}
-      const all = await _reqToPromise(s.financeTransactions.getAll()).catch(() => []);
-      const rows2 = (all || []).filter((t) => t && t.month === m);
-      rows2.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-      return rows2;
-    }).catch(() => []);
-  }
-
-  async function getMonthlySummary(monthKey) {
-    const txns = await listTransactions(monthKey);
-    let income = 0;
-    let expense = 0;
-    for (let i = 0; i < txns.length; i++) {
-      const t = txns[i];
-      const amt = Number((t && t.amount) || 0);
-      if (t && t.type === "income") income += amt;
-      if (t && t.type === "expense") expense += amt;
     }
-    const remaining = income - expense;
-    const remainingPct = income > 0 ? Math.max(0, Math.round((remaining / income) * 100)) : 0;
-    const spentPct = income > 0 ? Math.min(100, Math.max(0, Math.round((expense / income) * 100))) : 0;
-    return { income, expense, remaining, remainingPct, spentPct, month: monthKey || getMonthKey(getTodayKey()) };
+    var r = await DB.get("maintenanceRoutines", "main");
+    if (!r) {
+      await DB.put("maintenanceRoutines", {
+        key: "main",
+        categories: [] // {id, name, checklists:[{id,name,items:[{id,text,done}]}]}
+      });
+    }
   }
 
-  // -----------------------------
+  async function ensureFinanceDefaults() {
+    // Create minimal categories if none exist
+    var cats = await DB.getAll("financeCategories");
+    if (cats && cats.length) return;
+
+    // Base categories (minimal, user can edit later)
+    await DB.add("financeCategories", { type: "income", name: "Income", order: 1 });
+    await DB.add("financeCategories", { type: "expense", name: "Expense", order: 2 });
+    await DB.add("financeCategories", { type: "gatekeeper", name: "Gatekeeper", order: 3 });
+  }
+
+  async function ensureTodayState() {
+    // Ensure today's journal entry exists (empty default)
+    var dk = todayKey();
+    var j = await DB.get("journalEntries", dk);
+    if (!j) {
+      await DB.put("journalEntries", {
+        date: dk,
+        morning: {
+          todos: [], // [{id,text,done,scheduledTime? "HH:MM"}]
+          notes: ""
+        },
+        evening: {
+          answers: {
+            q1: "",
+            q2: "",
+            q3: "",
+            q4: ""
+          },
+          notes: "",
+          completedAt: null
+        },
+        createdAt: nowISO(),
+        updatedAt: nowISO()
+      });
+    }
+    return true;
+  }
+
+  // ---------- Settings ----------
+  async function getSettings() {
+    return DB.get("settings", "main");
+  }
+
+  async function updateSettings(patch) {
+    var s = await getSettings();
+    if (!s) s = await ensureMainSettings();
+    // shallow merge
+    for (var k in patch) {
+      if (Object.prototype.hasOwnProperty.call(patch, k)) s[k] = patch[k];
+    }
+    await DB.put("settings", s);
+    return s;
+  }
+
+  // ---------- Journal ----------
+  async function getJournal(date) {
+    var d = date || todayKey();
+    var j = await DB.get("journalEntries", d);
+    if (!j && d === todayKey()) {
+      await ensureTodayState();
+      j = await DB.get("journalEntries", d);
+    }
+    return j;
+  }
+
+  async function saveJournal(date, journalObj) {
+    if (!journalObj || !journalObj.date) {
+      throw new Error("saveJournal: journalObj.date missing");
+    }
+    journalObj.updatedAt = nowISO();
+    await DB.put("journalEntries", journalObj);
+    return journalObj;
+  }
+
+  async function setMorningTodos(date, todos) {
+    var j = await getJournal(date);
+    if (!j) throw new Error("setMorningTodos: journal missing");
+    j.morning = j.morning || {};
+    j.morning.todos = Array.isArray(todos) ? todos : [];
+    j.updatedAt = nowISO();
+    await DB.put("journalEntries", j);
+    return j;
+  }
+
+  async function completeEvening(date, answersObj) {
+    var d = date || todayKey();
+    var j = await getJournal(d);
+    if (!j) throw new Error("completeEvening: journal missing");
+    j.evening = j.evening || {};
+    j.evening.answers = answersObj || j.evening.answers || {};
+    j.evening.completedAt = nowISO();
+    j.updatedAt = nowISO();
+    await DB.put("journalEntries", j);
+
+    // Create vault snapshot
+    await snapshotToVault(d);
+    return j;
+  }
+
+  // ---------- Vault ----------
+  async function snapshotToVault(dayKey) {
+    var d = dayKey || todayKey();
+    var j = await DB.get("journalEntries", d);
+
+    var payload = {
+      dayKey: d,
+      createdAt: nowISO(),
+      journal: j || null
+      // In later batches we will include calendar blocks + finance report snapshot
+    };
+
+    await DB.put("vaultEntries", payload);
+    return payload;
+  }
+
+  async function listVault() {
+    // returns all vault entries sorted by dayKey desc
+    var all = await DB.getAll("vaultEntries");
+    all.sort(function (a, b) {
+      if (a.dayKey < b.dayKey) return 1;
+      if (a.dayKey > b.dayKey) return -1;
+      return 0;
+    });
+    return all;
+  }
+
+  async function getVaultSnapshot(dayKey) {
+    return DB.get("vaultEntries", dayKey);
+  }
+
+  // ---------- Calendar Blocks ----------
+  async function listBlocksByDate(dateISO) {
+    var q = DB.makeRangeOnly(dateISO);
+    var rows = await DB.getAllByIndex("calendarBlocks", "date", q);
+    rows.sort(function (a, b) {
+      return String(a.start || "").localeCompare(String(b.start || ""));
+    });
+    return rows;
+  }
+
+  async function addBlock(block) {
+    // {date,start,end,title}
+    if (!block || !block.date) throw new Error("addBlock: date missing");
+    var b = {
+      date: block.date,
+      start: block.start || "",
+      end: block.end || "",
+      title: block.title || ""
+    };
+    var id = await DB.add("calendarBlocks", b);
+    b.id = id;
+    return b;
+  }
+
+  async function updateBlock(block) {
+    if (!block || !block.id) throw new Error("updateBlock: id missing");
+    await DB.put("calendarBlocks", block);
+    return block;
+  }
+
+  async function deleteBlock(id) {
+    return DB.del("calendarBlocks", id);
+  }
+
+  // ---------- Day Templates ----------
+  async function listTemplates() {
+    return DB.getAll("dayTemplates");
+  }
+
+  async function createTemplate(name, blocksArray) {
+    var t = {
+      name: name || "Template",
+      blocks: Array.isArray(blocksArray) ? blocksArray : []
+    };
+    var id = await DB.add("dayTemplates", t);
+    t.id = id;
+    return t;
+  }
+
+  async function updateTemplate(template) {
+    if (!template || !template.id) throw new Error("updateTemplate: id missing");
+    await DB.put("dayTemplates", template);
+    return template;
+  }
+
+  async function deleteTemplate(id) {
+    return DB.del("dayTemplates", id);
+  }
+
+  async function applyTemplateToDate(templateId, dateISO) {
+    var templates = await listTemplates();
+    var t = null;
+    for (var i = 0; i < templates.length; i++) {
+      if (templates[i].id === templateId) { t = templates[i]; break; }
+    }
+    if (!t) throw new Error("applyTemplateToDate: template not found");
+
+    var blocks = Array.isArray(t.blocks) ? t.blocks : [];
+    for (var j = 0; j < blocks.length; j++) {
+      await addBlock({
+        date: dateISO,
+        start: blocks[j].start || "",
+        end: blocks[j].end || "",
+        title: blocks[j].title || ""
+      });
+    }
+    return true;
+  }
+
+  // ---------- Finance ----------
+  async function listFinanceCategories(type) {
+    var all = await DB.getAll("financeCategories");
+    if (type) all = all.filter(function (c) { return c.type === type; });
+    all.sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+    return all;
+  }
+
+  async function addFinanceCategory(cat) {
+    var c = {
+      type: cat.type || "expense",
+      name: cat.name || "Category",
+      order: typeof cat.order === "number" ? cat.order : 999
+    };
+    var id = await DB.add("financeCategories", c);
+    c.id = id;
+    return c;
+  }
+
+  async function updateFinanceCategory(cat) {
+    if (!cat || !cat.id) throw new Error("updateFinanceCategory: id missing");
+    await DB.put("financeCategories", cat);
+    return cat;
+  }
+
+  async function deleteFinanceCategory(id) {
+    return DB.del("financeCategories", id);
+  }
+
+  async function listTransactionsByMonth(month) {
+    var m = month || monthKeyFromDateISO(todayKey());
+    var q = DB.makeRangeOnly(m);
+    var rows = await DB.getAllByIndex("financeTransactions", "month", q);
+    rows.sort(function (a, b) {
+      return String(a.date || "").localeCompare(String(b.date || ""));
+    });
+    return rows;
+  }
+
+  async function addTransaction(txn) {
+    // {month,date,type,categoryId,name?,amount,fixed?}
+    if (!txn) throw new Error("addTransaction: missing txn");
+    var date = txn.date || todayKey();
+    var t = {
+      month: txn.month || monthKeyFromDateISO(date),
+      date: date,
+      type: txn.type || "expense",
+      categoryId: txn.categoryId || null,
+      name: txn.name || "",
+      amount: typeof txn.amount === "number" ? txn.amount : Number(txn.amount || 0),
+      fixed: !!txn.fixed
+    };
+    var id = await DB.add("financeTransactions", t);
+    t.id = id;
+    return t;
+  }
+
+  async function updateTransaction(txn) {
+    if (!txn || !txn.id) throw new Error("updateTransaction: id missing");
+    await DB.put("financeTransactions", txn);
+    return txn;
+  }
+
+  async function deleteTransaction(id) {
+    return DB.del("financeTransactions", id);
+  }
+
   // Gatekeeper
-  // -----------------------------
+  async function addGatekeeper(item) {
+    // {name,price,categoryId,createdAt,unlockAt,status,purchasedAt?}
+    var createdAt = item.createdAt || nowISO();
+    var unlockAt = item.unlockAt || new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    var g = {
+      name: item.name || "Gatekeeper Item",
+      price: typeof item.price === "number" ? item.price : Number(item.price || 0),
+      categoryId: item.categoryId || null,
+      createdAt: createdAt,
+      unlockAt: unlockAt,
+      status: item.status || "locked", // locked|eligible|purchased|cancelled
+      purchasedAt: item.purchasedAt || null
+    };
+    var id = await DB.add("gatekeeperItems", g);
+    g.id = id;
+    return g;
+  }
 
-  function addGatekeeperItem(item) {
-    if (!item || !item.name || item.price == null || !item.categoryId) return Promise.resolve(null);
+  async function listGatekeepers(status) {
+    var all = await DB.getAll("gatekeeperItems");
+    if (status) all = all.filter(function (g) { return g.status === status; });
+    all.sort(function (a, b) {
+      return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+    });
+    return all;
+  }
 
-    const createdAt = item.createdAt || _now();
-    const unlockAt = item.unlockAt || (createdAt + 72 * 60 * 60 * 1000);
+  async function updateGatekeeper(item) {
+    if (!item || !item.id) throw new Error("updateGatekeeper: id missing");
+    await DB.put("gatekeeperItems", item);
+    return item;
+  }
 
-    const normalized = Object.assign({}, item, {
-      createdAt,
-      unlockAt,
-      price: Number(item.price || 0),
-      status: item.status || "locked",
-      purchasedAt: item.purchasedAt || null,
-      source: "gatekeeper"
+  async function markGatekeeperPurchased(id, purchaseDateISO) {
+    var all = await DB.getAll("gatekeeperItems");
+    var g = null;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].id === id) { g = all[i]; break; }
+    }
+    if (!g) throw new Error("markGatekeeperPurchased: not found");
+    g.status = "purchased";
+    g.purchasedAt = purchaseDateISO || nowISO();
+    await DB.put("gatekeeperItems", g);
+
+    // Create expense transaction automatically
+    await addTransaction({
+      date: todayKey(),
+      type: "expense",
+      categoryId: null,
+      name: "Gatekeeper: " + (g.name || ""),
+      amount: Number(g.price || 0),
+      fixed: false
     });
 
-    return _withStores("gatekeeperItems", "readwrite", (s) => _reqToPromise(s.gatekeeperItems.add(normalized)))
-      .then((id) => id)
-      .catch(() => null);
+    return g;
   }
 
-  function listGatekeeper() {
-    return _withStores("gatekeeperItems", "readonly", async (s) => {
-      try {
-        if (s.gatekeeperItems.indexNames.contains("createdAt")) {
-          const idx = s.gatekeeperItems.index("createdAt");
-          const all = await _reqToPromise(idx.getAll()).catch(() => null);
-          if (Array.isArray(all)) {
-            all.sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
-            return all;
-          }
-        }
-      } catch (_) {}
-      const all2 = await _reqToPromise(s.gatekeeperItems.getAll()).catch(() => []);
-      (all2 || []).sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
-      return all2 || [];
-    }).catch(() => []);
+  // ---------- Maintenance ----------
+  async function getEssentials() {
+    return DB.get("maintenanceEssentials", "main");
   }
 
-  function updateGatekeeperItem(item) {
-    if (!item || item.id == null) return Promise.resolve(false);
-    const normalized = Object.assign({}, item);
-    normalized.price = Number(normalized.price || 0);
-
-    return _withStores("gatekeeperItems", "readwrite", (s) => {
-      s.gatekeeperItems.put(normalized);
-      return true;
-    }).then(() => true).catch(() => false);
+  async function saveEssentials(doc) {
+    if (!doc || doc.key !== "main") throw new Error("saveEssentials: key main required");
+    await DB.put("maintenanceEssentials", doc);
+    return doc;
   }
 
-  async function getGatekeeperCounts() {
-    const items = await listGatekeeper();
-    let locked = 0, eligible = 0, purchased = 0;
-    const now = _now();
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      const st = String(it.status || "");
-      if (st === "purchased") { purchased++; continue; }
-      if (now >= Number(it.unlockAt || 0)) eligible++;
-      else locked++;
+  async function getRoutines() {
+    return DB.get("maintenanceRoutines", "main");
+  }
+
+  async function saveRoutines(doc) {
+    if (!doc || doc.key !== "main") throw new Error("saveRoutines: key main required");
+    await DB.put("maintenanceRoutines", doc);
+    return doc;
+  }
+
+  // ---------- Backup / Reset ----------
+  async function exportBackup() {
+    // Full JSON snapshot (all stores)
+    var stores = [
+      "settings",
+      "journalEntries",
+      "calendarBlocks",
+      "dayTemplates",
+      "financeCategories",
+      "financeTransactions",
+      "gatekeeperItems",
+      "vaultEntries",
+      "maintenanceEssentials",
+      "maintenanceRoutines"
+    ];
+
+    var out = { meta: { exportedAt: nowISO(), dbName: DB_NAME, dbVersion: DB_VERSION }, data: {} };
+
+    for (var i = 0; i < stores.length; i++) {
+      out.data[stores[i]] = await DB.getAll(stores[i]);
     }
-    return { locked, eligible, purchased, total: items.length };
+    return out;
   }
 
-  // -----------------------------
-  // Vault (Snapshots)
-  // -----------------------------
-
-  function getVaultSnapshot(dayKey) {
-    const key = dayKey || getTodayKey();
-    const storeName = _getVaultStore();
-    return _withStores(storeName, "readonly", (s) => _reqToPromise(s[storeName].get(key)))
-      .then((res) => res || null)
-      .catch(() => null);
+  async function hardReset() {
+    await DB.destroyDatabase(DB_NAME);
+    // After deletion, caller should reload; on next init DB recreates
+    return true;
   }
 
-  function listVault() {
-    const storeName = _getVaultStore();
-    return _withStores(storeName, "readonly", async (s) => {
-      const all = await _reqToPromise(s[storeName].getAll()).catch(() => []);
-      (all || []).sort((a, b) => String(b.dayKey || "").localeCompare(String(a.dayKey || "")));
-      return all || [];
-    }).catch(() => []);
-  }
+  async function softResetTodayOnly() {
+    var dk = todayKey();
+    // Remove today's journal + today's blocks (by date) only
+    await DB.del("journalEntries", dk);
 
-  async function closeDay() {
-    const settings = await getSettings();
-    if (!settings || settings.dayStatus !== "evening") return false;
-
-    const dayKey = settings.currentDayKey || getTodayKey();
-    const monthKey = getMonthKey(dayKey);
-
-    const jRaw = await getJournal(dayKey);
-    const journal = ensureJournalShape(jRaw, dayKey);
-
-    const todos = (journal.morning && Array.isArray(journal.morning.todos)) ? journal.morning.todos : [];
-    const total = todos.length;
-    const done = todos.filter((t) => !!t.done).length;
-    const performanceScore = total === 0 ? 0 : Math.round((done / total) * 100);
-
-    const blocks = await listBlocks(dayKey);
-    const summary = await getMonthlySummary(monthKey);
-
-    const snapshot = {
-      dayKey,
-      closedAt: _now(),
-      performanceScore,
-      todos: { total, done },
-      blocksSummary: (blocks || []).map((b) => ({
-        start: b && b.start,
-        end: b && b.end,
-        title: b && b.title
-      })),
-      morningSummary: {
-        lookingForward: _safe(() => journal.morning.lookingForward, "") || "",
-        planning: _safe(() => journal.morning.planning, "") || ""
-      },
-      eveningSummary: {
-        reflection: _safe(() => journal.evening.reflection, "") || "",
-        rating: _safe(() => journal.evening.rating, "") || "",
-        gratitude: _safe(() => journal.evening.gratitude, "") || ""
-      },
-      finance: {
-        income: Number(summary.income || 0),
-        expense: Number(summary.expense || 0),
-        remaining: Number(summary.remaining || 0),
-        month: summary.month
-      }
-    };
-
-    const storeName = _getVaultStore();
-    const okSnap = await _withStores(storeName, "readwrite", (s) => {
-      s[storeName].put(snapshot);
-      return true;
-    }).then(() => true).catch(() => false);
-
-    if (!okSnap) return false;
-
-    settings.dayStatus = "closed";
-    settings.dayClosedAt = _now();
-    const okSet = await putSettings(settings);
-    return !!okSet;
-  }
-
-  // -----------------------------
-  // Export / Import / Reset (Maintenance)
-  // -----------------------------
-
-  async function exportAll() {
-    try {
-      await openDB();
-      const names = [];
-      for (let i = 0; i < _db.objectStoreNames.length; i++) names.push(_db.objectStoreNames[i]);
-
-      const out = { meta: { exportedAt: _now(), dbName: DB_NAME, dbVersion: DB_VERSION }, stores: {} };
-
-      for (let i = 0; i < names.length; i++) {
-        const storeName = names[i];
-        const rows = await _withStores(storeName, "readonly", (s) => _reqToPromise(s[storeName].getAll()))
-          .catch(() => []);
-        out.stores[storeName] = rows || [];
-      }
-
-      return out;
-    } catch (_) {
-      return null;
+    // Delete blocks by date: iterate all blocks of date and delete by id
+    var blocks = await listBlocksByDate(dk);
+    for (var i = 0; i < blocks.length; i++) {
+      await deleteBlock(blocks[i].id);
     }
+    // Vault entry for today
+    await DB.del("vaultEntries", dk);
+
+    // Re-create default journal for today
+    await ensureTodayState();
+    return true;
   }
 
-  async function importAll(payload) {
-    try {
-      if (!payload || !payload.stores) return false;
-      await openDB();
-
-      const storeNames = Object.keys(payload.stores);
-      for (let i = 0; i < storeNames.length; i++) {
-        const name = storeNames[i];
-        if (!_db.objectStoreNames.contains(name)) continue;
-
-        const rows = payload.stores[name];
-        if (!Array.isArray(rows)) continue;
-
-        await _withStores(name, "readwrite", (s) => {
-          for (let r = 0; r < rows.length; r++) {
-            s[name].put(rows[r]);
-          }
-          return true;
-        }).catch(() => false);
-      }
-
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  async function resetDB() {
-    try {
-      if (_db) {
-        try { _db.close(); } catch (_) {}
-        _db = null;
-      }
-      _openPromise = null;
-
-      const ok = await new Promise((resolve) => {
-        const req = indexedDB.deleteDatabase(DB_NAME);
-        req.onsuccess = () => resolve(true);
-        req.onerror = () => resolve(false);
-        req.onblocked = () => resolve(false);
-      });
-
-      return !!ok;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  // -----------------------------
   // Public API
-  // -----------------------------
+  State.init = init;
+  State.ensureTodayState = ensureTodayState;
 
-  return {
-    // core
-    openDB,
-    ensureCoreSeed,
-    ensureTodayState,
+  State.getSettings = getSettings;
+  State.updateSettings = updateSettings;
 
-    // settings/day state
-    getSettings,
-    putSettings,
-    getDayStatus,
-    completeMorning,
-    startEvening,
-    closeDay,
+  State.getJournal = getJournal;
+  State.saveJournal = saveJournal;
+  State.setMorningTodos = setMorningTodos;
+  State.completeEvening = completeEvening;
 
-    // helpers exposed (needed by screens)
-    getTodayKey,
-    getMonthKey,
-    timeToMinutes,
+  State.snapshotToVault = snapshotToVault;
+  State.listVault = listVault;
+  State.getVaultSnapshot = getVaultSnapshot;
 
-    // journal
-    ensureJournalShape,
-    getJournal,
-    putJournal,
-    deleteJournal,
+  State.listBlocksByDate = listBlocksByDate;
+  State.addBlock = addBlock;
+  State.updateBlock = updateBlock;
+  State.deleteBlock = deleteBlock;
 
-    // blocks
-    listBlocks,
-    addBlock,
-    deleteBlock,
+  State.listTemplates = listTemplates;
+  State.createTemplate = createTemplate;
+  State.updateTemplate = updateTemplate;
+  State.deleteTemplate = deleteTemplate;
+  State.applyTemplateToDate = applyTemplateToDate;
 
-    // templates
-    listTemplates,
-    addTemplate,
-    deleteTemplate,
-    applyTemplateToDate,
+  State.listFinanceCategories = listFinanceCategories;
+  State.addFinanceCategory = addFinanceCategory;
+  State.updateFinanceCategory = updateFinanceCategory;
+  State.deleteFinanceCategory = deleteFinanceCategory;
 
-    // finance
-    listFinanceCategories,
-    addFinanceCategory,
-    deleteFinanceCategory,
-    addTransaction,
-    listTransactions,
-    getMonthlySummary,
+  State.listTransactionsByMonth = listTransactionsByMonth;
+  State.addTransaction = addTransaction;
+  State.updateTransaction = updateTransaction;
+  State.deleteTransaction = deleteTransaction;
 
-    // gatekeeper
-    addGatekeeperItem,
-    listGatekeeper,
-    updateGatekeeperItem,
-    getGatekeeperCounts,
+  State.addGatekeeper = addGatekeeper;
+  State.listGatekeepers = listGatekeepers;
+  State.updateGatekeeper = updateGatekeeper;
+  State.markGatekeeperPurchased = markGatekeeperPurchased;
 
-    // vault
-    getVaultStoreName,
-    getVaultSnapshot,
-    listVault,
+  State.getEssentials = getEssentials;
+  State.saveEssentials = saveEssentials;
+  State.getRoutines = getRoutines;
+  State.saveRoutines = saveRoutines;
 
-    // maintenance tools
-    exportAll,
-    importAll,
-    resetDB
-  };
+  State.exportBackup = exportBackup;
+  State.hardReset = hardReset;
+  State.softResetTodayOnly = softResetTodayOnly;
 
-})();
-
-/* =========================================================
-   P0 FIX (iOS/Safari): ensure State is on the global object.
-   Some Safari builds do not expose top-level const on window.
-   This makes window.State + globalThis.State always available.
-   ========================================================= */
-(function () {
-  "use strict";
-  try {
-    if (typeof window !== "undefined") window.State = State;
-  } catch (_) {}
-  try {
-    if (typeof globalThis !== "undefined") globalThis.State = State;
-  } catch (_) {}
+  window.State = State;
 })();
