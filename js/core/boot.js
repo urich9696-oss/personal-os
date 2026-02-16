@@ -1,84 +1,89 @@
 // js/core/boot.js
-// PERSONAL OS — Boot Sequence
-// - Ensure DB seed + today state
-// - Determine start screen from settings (ui.startScreen) else dashboard
-// - Start screen is NOT a bottom tab; bottom tabs are screens but dashboard is default entry
+// PERSONAL OS — Boot Sequence (dashboard first, offline-safe, iOS-safe)
+// Requirements:
+// - Dashboard is startscreen (not a tab)
+// - Ensures DB seed + today state
+// - Applies debug flag to runtime
+// - Initializes Router after core is ready
+// - No modules, defensive
 
 (function () {
   "use strict";
 
-  function safeStr(v) { try { return String(v); } catch (_) { return ""; } }
+  window.PersonalOS = window.PersonalOS || {};
 
-  function showBootError(msg) {
+  function logDiag(line) {
     try {
-      var host = document.getElementById("app-content");
-      if (!host) return;
-      host.innerHTML =
-        "<div class='dash-card' style='margin-top:12px; border:1px solid rgba(160,60,60,0.25);'>" +
-          "<div style='font-weight:900; color:#7a1f1f;'>Boot failed</div>" +
-          "<div style='font-size:13px; opacity:0.85; margin-top:8px; white-space:pre-wrap;'>" +
-            escapeHtml(msg) +
-          "</div>" +
-          "<div style='font-size:12px; opacity:0.75; margin-top:10px;'>" +
-            "Tipp: Wenn du auf GitHub Pages eine alte Version siehst: URL mit <b>?nosw=1</b> öffnen." +
-          "</div>" +
-        "</div>";
+      var card = document.getElementById("diag-card");
+      var pre = document.getElementById("diag-log");
+      if (!card || !pre) return;
+      card.style.display = "block";
+      pre.textContent = (pre.textContent ? (pre.textContent + "\n") : "") + String(line || "");
     } catch (_) {}
   }
 
-  function escapeHtml(str) {
-    return String(str || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&lt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
+  function safeStr(v) { try { return String(v); } catch (_) { return "[unprintable]"; } }
 
   async function boot() {
-    try {
-      // Hard prerequisites
-      if (!window.State) { showBootError("State fehlt (state.js nicht geladen)."); return; }
-      if (!window.Router) { showBootError("Router fehlt (router.js nicht geladen)."); return; }
-      if (!window.ScreenRegistry) { showBootError("ScreenRegistry fehlt (registry.js nicht geladen)."); return; }
-
-      // Ensure DB + today
-      try {
-        if (typeof window.State.ensureTodayState === "function") {
-          await window.State.ensureTodayState();
-        } else if (typeof window.State.ensureCoreSeed === "function") {
-          await window.State.ensureCoreSeed();
-        }
-      } catch (_) {}
-
-      // Determine start screen
-      var startScreen = "dashboard";
-      try {
-        if (typeof window.State.getSettings === "function") {
-          var s = await window.State.getSettings();
-          if (s && s.ui && s.ui.startScreen) startScreen = safeStr(s.ui.startScreen) || "dashboard";
-        }
-      } catch (_) {}
-
-      // Always fall back to dashboard
-      if (!startScreen) startScreen = "dashboard";
-
-      // Navigate
-      await window.Router.go(startScreen);
-    } catch (e) {
-      showBootError(String(e && (e.message || e) || "unknown boot error"));
+    // Sanity checks (never hard-crash)
+    if (!window.Router || typeof window.Router.init !== "function") {
+      logDiag("BOOT: Router missing or invalid.");
+      return;
     }
+    if (!window.ScreenRegistry || typeof window.ScreenRegistry.register !== "function") {
+      logDiag("BOOT: ScreenRegistry missing or invalid.");
+      return;
+    }
+    if (!window.State) {
+      logDiag("BOOT: State missing (window.State undefined).");
+      return;
+    }
+
+    // Seed + set day state (iOS-safe)
+    try {
+      if (typeof window.State.ensureTodayState === "function") {
+        await window.State.ensureTodayState();
+      } else if (typeof window.State.ensureCoreSeed === "function") {
+        await window.State.ensureCoreSeed();
+      }
+    } catch (e) {
+      logDiag("BOOT: ensureTodayState failed: " + safeStr(e && e.message ? e.message : e));
+    }
+
+    // Apply debug flag to runtime
+    try {
+      var settings = null;
+      if (typeof window.State.getSettings === "function") {
+        settings = await window.State.getSettings();
+      }
+      var debug = !!(settings && settings.ui && settings.ui.debug);
+      window.PersonalOS.debug = debug;
+    } catch (_) {}
+
+    // Init router (will deep-link if hash present; otherwise dashboard)
+    try {
+      window.Router.init();
+    } catch (e2) {
+      logDiag("BOOT: Router.init failed: " + safeStr(e2 && e2.message ? e2.message : e2));
+    }
+
+    // Optional: react to hash changes (basic)
+    try {
+      window.addEventListener("hashchange", function () {
+        try { window.Router.init(); } catch (_) {}
+      });
+    } catch (_) {}
   }
 
-  // DOM ready
+  // Start after DOM is ready (safe for iOS)
   try {
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", boot, { passive: true });
+    if (document.readyState === "complete" || document.readyState === "interactive") {
+      setTimeout(boot, 0);
     } else {
-      boot();
+      document.addEventListener("DOMContentLoaded", function () { boot(); }, { passive: true });
     }
   } catch (_) {
-    // last resort
-    setTimeout(boot, 0);
+    // Last fallback
+    setTimeout(boot, 50);
   }
 })();
