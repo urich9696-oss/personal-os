@@ -1,11 +1,11 @@
 // js/core/router.js
 // PERSONAL OS — Router (no modules, crash-safe, dashboard default)
-// Updates in dieser Version:
-// - Dispatch Event "personalos:navigated" nach erfolgreicher Navigation (für Tab-Sync)
-// - Optional: Hash Deep-Linking (#/screen?key=value) ohne App-Crash
-// - Never-white: renderErrorScreen als letzte Instanz
-// - Params: setParam/getParam/clearParams (runtime, one-shot möglich)
-// - Dashboard ist Startscreen (nicht Tab)
+// Updates:
+// - Dispatch Event "personalos:navigated" after successful navigation (for Tab-Sync)
+// - Hash Deep-Linking (#/screen?key=value) safe
+// - Never-white: renderErrorScreen fallback
+// - Params: setParam/getParam/clearParams + setParams(object)
+// - Dashboard is Startscreen (not a tab)
 
 (function () {
   "use strict";
@@ -45,6 +45,15 @@
     try { _params[key] = value; } catch (_) {}
   }
 
+  function setParams(obj) {
+    try {
+      if (!obj || typeof obj !== "object") return;
+      for (var k in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) _params[k] = obj[k];
+      }
+    } catch (_) {}
+  }
+
   function getParam(key) {
     try { return _params[key]; } catch (_) { return undefined; }
   }
@@ -76,7 +85,6 @@
       "<div style='font-weight:900; margin-bottom:6px;'>" + escapeHtml(title || "Error") + "</div>" +
       "<div style='opacity:0.85; font-size:13px;'>" + escapeHtml(details || "Unknown") + "</div>";
 
-    // Optional debug extras
     try {
       var dbg = window.PersonalOS && window.PersonalOS.debug;
       if (dbg) {
@@ -134,13 +142,9 @@
         return;
       }
 
-      // Allow mount every time (stable)
       await def.mount(host, { params: _params });
 
-      // Success: dispatch navigation event
       dispatchNavigated(_current);
-
-      // Keep hash synced (deep link)
       syncHash(_current);
 
     } catch (e) {
@@ -155,10 +159,8 @@
     try {
       ensureRegistry();
 
-      // If URL contains hash deep link, respect it once
       var start = parseHash();
       if (start && start.screen) {
-        // Apply params from hash (one-shot)
         if (start.params) {
           for (var k in start.params) {
             if (Object.prototype.hasOwnProperty.call(start.params, k)) _params[k] = start.params[k];
@@ -168,7 +170,6 @@
         return;
       }
 
-      // Always start on dashboard
       go("dashboard");
 
     } catch (e) {
@@ -177,15 +178,13 @@
     }
   }
 
-  // ===== Hash Deep-Linking (#/screen?key=value) =====
   function parseHash() {
     try {
       var h = String(location.hash || "");
-      // supported formats: "#/mindset" or "#/vault?dayKey=2026-02-16"
       if (!h || h.length < 3) return null;
       if (h.indexOf("#/") !== 0) return null;
 
-      var rest = h.slice(2); // "/screen?..."
+      var rest = h.slice(2);
       if (rest.indexOf("/") === 0) rest = rest.slice(1);
 
       var parts = rest.split("?");
@@ -211,13 +210,11 @@
 
   function syncHash(screenName) {
     try {
-      // Keep it minimal: only screen name, no params (params are runtime-only by design)
       var s = String(screenName || "");
       if (!s) return;
 
       var newHash = "#/" + encodeURIComponent(s);
       if (location.hash !== newHash) {
-        // replaceState avoids piling history entries
         history.replaceState(null, "", newHash);
       }
     } catch (_) {}
@@ -227,7 +224,7 @@
     return String(str || "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
+      .replace(/>/g, "&lt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
   }
@@ -236,6 +233,7 @@
     init: init,
     go: go,
     setParam: setParam,
+    setParams: setParams,
     getParam: getParam,
     clearParams: clearParams
   };
