@@ -1,118 +1,77 @@
-(function () {
-  const ui = () => window.POS && window.POS.ui;
-  const reg = () => window.POS && window.POS.registry;
+// js/core/router.js
+// PERSONAL OS — Router (crash-safe, lazy mount, param support)
 
-  const state = {
-    current: null,         // dashboard | mindset | path | maintenance | finance
-    lastTab: "mindset",     // remember last opened tab
-    params: {}             // one-shot params for next mount
-  };
+const Router = (function () {
 
-  function setActiveNav(screenId) {
-    const nav = document.getElementById("bottomNav");
-    if (!nav) return;
-    const btns = nav.querySelectorAll(".nav-btn");
-    for (let i = 0; i < btns.length; i++) {
-      const b = btns[i];
-      const target = b.getAttribute("data-screen");
-      if (target === screenId) b.classList.add("active");
-      else b.classList.remove("active");
+  let currentScreen = null;
+  let params = {};
+
+  function init() {
+    try {
+      go("dashboard");
+    } catch (e) {
+      console.error("Router init failed", e);
     }
   }
 
-  function clearRoot() {
-    const root = document.getElementById("screenRoot");
-    if (!root) return;
-    root.innerHTML = "";
+  function setParam(key, value) {
+    params[key] = value;
   }
 
-  async function guardedMount(screenId, ctx) {
-    const entry = reg().get(screenId);
-    if (!entry) return;
+  function getParam(key) {
+    return params[key];
+  }
 
-    if (!entry.mountFn) {
-      try {
-        entry.mountFn = entry.factory();
-      } catch (e) {
-        ui().toast("Screen init failed: " + screenId);
-        console.error("Screen factory error:", screenId, e);
-        return;
-      }
-    }
+  function clearParams() {
+    params = {};
+  }
 
-    if (typeof entry.mountFn !== "function") {
-      ui().toast("Screen mount missing: " + screenId);
-      return;
-    }
+  function go(screenName) {
 
     try {
-      await entry.mountFn(ctx);
-      entry.mounted = true;
-    } catch (e) {
-      ui().toast("Screen crashed: " + screenId);
-      console.error("Screen mount error:", screenId, e);
-      // Never throw further
-    }
-  }
 
-  async function go(screenId, params) {
-    params = params || {};
-    state.params = params;
+      if (!screenName) return;
 
-    // Dashboard is not a tab, but tabs stay visible
-    state.current = screenId;
-    if (screenId !== "dashboard") state.lastTab = screenId;
+      const container = document.getElementById("app-content");
+      if (!container) return;
 
-    // UI: set nav active only for tabs
-    if (screenId === "mindset" || screenId === "path" || screenId === "maintenance" || screenId === "finance") {
-      setActiveNav(screenId);
-    } else {
-      setActiveNav(null);
-    }
+      if (currentScreen === screenName) return;
 
-    clearRoot();
+      currentScreen = screenName;
 
-    const root = document.getElementById("screenRoot");
-    if (!root) return;
+      // Clear view
+      container.innerHTML = "";
 
-    const ctx = {
-      root: root,
-      router: window.POS.router,
-      params: state.params
-    };
+      const screen = ScreenRegistry.get(screenName);
 
-    await guardedMount(screenId, ctx);
-  }
+      if (!screen || typeof screen.mount !== "function") {
+        container.innerHTML = "<div class='error'>Screen not found</div>";
+        return;
+      }
 
-  function bindBottomNav() {
-    const nav = document.getElementById("bottomNav");
-    if (!nav) return;
-
-    const handler = function (e) {
       try {
-        e.preventDefault();
-      } catch (_) {}
+        screen.mount(container);
+      } catch (e) {
+        console.error("Screen mount error", e);
+        container.innerHTML = "<div class='error'>Screen failed to load</div>";
+      }
 
-      const btn = e.currentTarget;
-      const target = btn && btn.getAttribute("data-screen");
-      if (!target) return;
-
-      // Always navigate even if current screen is broken
-      window.POS.router.go(target, {});
-    };
-
-    const btns = nav.querySelectorAll(".nav-btn");
-    for (let i = 0; i < btns.length; i++) {
-      const b = btns[i];
-      b.addEventListener("click", handler, { passive: false });
-      b.addEventListener("touchend", handler, { passive: false });
+    } catch (e) {
+      console.error("Router go error", e);
     }
   }
 
-  function getState() {
-    return { current: state.current, lastTab: state.lastTab };
+  function getCurrent() {
+    return currentScreen;
   }
 
-  window.POS = window.POS || {};
-  window.POS.router = { go, bindBottomNav, getState };
+  return {
+    init,
+    go,
+    getCurrent,
+    setParam,
+    getParam,
+    clearParams
+  };
+
 })();
