@@ -2,375 +2,524 @@
   "use strict";
 
   ScreenRegistry.register("maintenance", {
-    mount: async function (container, ctx) {
+    mount: async function (container) {
       container.innerHTML = "";
 
-      var title = UI.el("div", { className: "section-title", text: "Maintenance (Human)" }, []);
+      var title = UI.el("div", { className: "section-title", text: "Maintenance" }, []);
       container.appendChild(title);
 
-      var top = UI.el("div", { className: "grid-2" }, [
-        tileButton("Essentials", "Products & Frequencies", function () { openEssentials(container); }),
-        tileButton("Routinen", "Checklists", function () { openRoutines(container); })
-      ]);
-      container.appendChild(top);
+      // Essentials Card
+      var essentialsCard = UI.el("div", { className: "card tile" }, []);
+      essentialsCard.appendChild(UI.el("div", { className: "tile__label", text: "Essentials" }, []));
+      essentialsCard.appendChild(UI.el("div", { className: "ui-text", text: "Kategorien → Produkte/Items. Optional mit Bild." }, []));
+      essentialsCard.appendChild(UI.el("div", { style: "height:10px" }, []));
 
-      // Default view: essentials list
+      var eRow = UI.el("div", { className: "row" }, []);
+      var eAddCat = UI.el("button", { className: "btn", type: "button", text: "Add Category" }, []);
+      eAddCat.addEventListener("click", function () { essentialsAddCategoryFlow(); });
+
+      var eManage = UI.el("button", { className: "btn", type: "button", text: "Open" }, []);
+      eManage.addEventListener("click", function () { openEssentialsManager(); });
+
+      eRow.appendChild(eAddCat);
+      eRow.appendChild(eManage);
+      essentialsCard.appendChild(eRow);
+
+      container.appendChild(essentialsCard);
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
-      await openEssentials(container);
+
+      // Routines Card
+      var routinesCard = UI.el("div", { className: "card tile" }, []);
+      routinesCard.appendChild(UI.el("div", { className: "tile__label", text: "Routinen" }, []));
+      routinesCard.appendChild(UI.el("div", { className: "ui-text", text: "Kategorien → Checklisten → Abhaken." }, []));
+      routinesCard.appendChild(UI.el("div", { style: "height:10px" }, []));
+
+      var rRow = UI.el("div", { className: "row" }, []);
+      var rAddCat = UI.el("button", { className: "btn", type: "button", text: "Add Category" }, []);
+      rAddCat.addEventListener("click", function () { routinesAddCategoryFlow(); });
+
+      var rManage = UI.el("button", { className: "btn", type: "button", text: "Open" }, []);
+      rManage.addEventListener("click", function () { openRoutinesManager(); });
+
+      rRow.appendChild(rAddCat);
+      rRow.appendChild(rManage);
+      routinesCard.appendChild(rRow);
+
+      container.appendChild(routinesCard);
     }
   });
 
-  function tileButton(label, value, onClick) {
-    var t = UI.el("div", { className: "card tile tile-click" }, [
-      UI.el("div", { className: "tile__label", text: label }, []),
-      UI.el("div", { className: "tile__value", text: value }, [])
-    ]);
-    t.addEventListener("click", onClick);
-    return t;
+  // ---------------- Essentials ----------------
+  async function essentialsAddCategoryFlow() {
+    var name = await UI.prompt("Essentials", "Category name", "", "e.g. Hygiene");
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return;
+
+    await State.essentialsAddCategory(name);
+    UI.toast("Category added");
+    Router.go("maintenance", {});
   }
 
-  async function openEssentials(container) {
-    removeSection(container, "maintenance-section");
-    var section = UI.el("div", { id: "maintenance-section" }, []);
-    container.appendChild(section);
+  async function openEssentialsManager() {
+    var cats = await State.essentialsListCategories();
+    if (!cats.length) { UI.toast("No categories"); return; }
 
-    var doc = await State.getEssentials();
-    doc.categories = Array.isArray(doc.categories) ? doc.categories : [];
+    var pick = await UI.prompt("Essentials", "Open category (exact name)", cats[0].name, "");
+    if (pick === null) return;
+    pick = pick.trim();
 
-    var card = UI.el("div", { className: "card tile" }, []);
-    card.appendChild(UI.el("div", { className: "tile__label", text: "Essentials — Categories" }, []));
+    var cat = null;
+    for (var i = 0; i < cats.length; i++) if (cats[i].name === pick) { cat = cats[i]; break; }
+    if (!cat) { UI.toast("Not found"); return; }
 
-    var addCat = UI.el("button", { className: "btn", type: "button", text: "Add Category" }, []);
-    addCat.addEventListener("click", function () {
-      UI.prompt("New Category", "Name", "", "e.g. Supplements").then(function (name) {
-        if (name === null) return;
-        var n = name.trim();
-        if (!n) return;
-        doc.categories.push({ id: "c" + String(Date.now()), name: n, items: [] });
-        State.saveEssentials(doc).then(function () { UI.toast("Saved"); openEssentials(container); });
-      });
+    await essentialsCategoryMenu(cat);
+  }
+
+  async function essentialsCategoryMenu(cat) {
+    UI.modal({
+      title: "Essentials: " + cat.name,
+      bodyHtml:
+        "<div class='ui-text'>Choose:</div>" +
+        "<div style='height:10px'></div>" +
+        "<div class='ui-text'>• Add Item</div>" +
+        "<div class='ui-text'>• List Items</div>" +
+        "<div class='ui-text'>• Rename Category</div>" +
+        "<div class='ui-text'>• Delete Category</div>",
+      buttons: [
+        { text: "Add Item", value: "add", primary: true },
+        { text: "List Items", value: "list" },
+        { text: "Rename", value: "rename" },
+        { text: "Delete", value: "delete" },
+        { text: "Close", value: "close" }
+      ],
+      onClose: function (v) {
+        if (v === "add") essentialsAddItemFlow(cat.id);
+        if (v === "list") essentialsListItemsFlow(cat.id, cat.name);
+        if (v === "rename") essentialsRenameCategoryFlow(cat.id, cat.name);
+        if (v === "delete") essentialsDeleteCategoryFlow(cat.id, cat.name);
+      }
     });
+  }
 
-    card.appendChild(UI.el("div", { style: "height:10px" }, []));
-    card.appendChild(addCat);
-    card.appendChild(UI.el("div", { style: "height:12px" }, []));
+  async function essentialsRenameCategoryFlow(categoryId, oldName) {
+    var name = await UI.prompt("Rename Category", "New name", oldName, "");
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return;
 
-    if (!doc.categories.length) {
-      card.appendChild(UI.el("div", { className: "ui-text", text: "No categories yet." }, []));
-      section.appendChild(card);
-      return;
+    await State.essentialsRenameCategory(categoryId, name);
+    UI.toast("Renamed");
+    Router.go("maintenance", {});
+  }
+
+  async function essentialsDeleteCategoryFlow(categoryId, name) {
+    var ok = await UI.confirm("Delete Category", "Delete '" + name + "' and all its items?");
+    if (!ok) return;
+
+    await State.essentialsDeleteCategory(categoryId);
+    UI.toast("Deleted");
+    Router.go("maintenance", {});
+  }
+
+  async function essentialsAddItemFlow(categoryId) {
+    var name = await UI.prompt("Add Item", "Name", "", "e.g. Shampoo");
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return;
+
+    var priceStr = await UI.prompt("Add Item", "Price (CHF)", "0", "12.90");
+    if (priceStr === null) return;
+    var price = Number(String(priceStr).replace(",", "."));
+    if (isNaN(price)) { UI.toast("Invalid price"); return; }
+
+    var freq = await UI.prompt("Add Item", "Frequenz", "", "e.g. monthly / weekly");
+    if (freq === null) return;
+
+    var usage = await UI.prompt("Add Item", "Nutzung (optional)", "", "optional");
+    if (usage === null) return;
+
+    var addImage = await UI.confirm("Image", "Add an optional image from Photos?");
+    var imageDataUrl = null;
+    if (addImage) {
+      imageDataUrl = await pickImageDataUrl();
+      if (imageDataUrl === "__CANCEL__") return;
+      if (imageDataUrl === "__NOFILE__") imageDataUrl = null;
     }
 
-    doc.categories.forEach(function (cat) {
-      var row = UI.el("div", { className: "mini-row" }, []);
-      var btn = UI.el("button", { className: "btn", type: "button", text: cat.name }, []);
-      btn.addEventListener("click", function () { openEssentialsCategory(container, doc, cat.id); });
-
-      var del = UI.el("button", { className: "btn btn-mini", type: "button", text: "Delete" }, []);
-      del.addEventListener("click", function () {
-        UI.confirm("Delete Category", "Delete " + cat.name + "?").then(function (ok) {
-          if (!ok) return;
-          doc.categories = doc.categories.filter(function (c) { return c.id !== cat.id; });
-          State.saveEssentials(doc).then(function () { UI.toast("Deleted"); openEssentials(container); });
-        });
-      });
-
-      row.appendChild(btn);
-      row.appendChild(del);
-      card.appendChild(row);
-      card.appendChild(UI.el("div", { style: "height:8px" }, []));
+    await State.essentialsAddItem(categoryId, {
+      name: name,
+      price: price,
+      frequency: String(freq || "").trim(),
+      usage: String(usage || "").trim(),
+      imageDataUrl: imageDataUrl
     });
 
-    section.appendChild(card);
+    UI.toast("Item added");
+    Router.go("maintenance", {});
   }
 
-  async function openEssentialsCategory(container, doc, catId) {
-    removeSection(container, "maintenance-section");
-    var section = UI.el("div", { id: "maintenance-section" }, []);
-    container.appendChild(section);
-
-    var cat = doc.categories.filter(function (c) { return c.id === catId; })[0];
+  async function essentialsListItemsFlow(categoryId, categoryName) {
+    // We don't have a direct API to fetch items list only; simplest: list categories and find it again
+    var cats = await State.essentialsListCategories();
+    var cat = null;
+    for (var i = 0; i < cats.length; i++) if (cats[i].id === categoryId) { cat = cats[i]; break; }
     if (!cat) { UI.toast("Category missing"); return; }
-    cat.items = Array.isArray(cat.items) ? cat.items : [];
+    var items = Array.isArray(cat.items) ? cat.items : [];
 
-    var back = UI.el("button", { className: "btn", type: "button", text: "Back" }, []);
-    back.addEventListener("click", function () { openEssentials(container); });
-    section.appendChild(back);
-    section.appendChild(UI.el("div", { style: "height:12px" }, []));
-
-    var card = UI.el("div", { className: "card tile" }, []);
-    card.appendChild(UI.el("div", { className: "tile__label", text: "Category: " + cat.name }, []));
-
-    var addItem = UI.el("button", { className: "btn", type: "button", text: "Add Product" }, []);
-    addItem.addEventListener("click", function () {
-      UI.prompt("New Product", "Name", "", "e.g. Creatine").then(function (name) {
-        if (name === null) return;
-        var n = name.trim();
-        if (!n) return;
-
-        UI.prompt("Price", "CHF", "", "e.g. 29.90").then(function (priceStr) {
-          if (priceStr === null) return;
-          var p = Number(String(priceStr).replace(",", "."));
-          if (isNaN(p)) p = 0;
-
-          UI.prompt("Frequency", "e.g. every 30 days", "", "every 30 days").then(function (freq) {
-            if (freq === null) return;
-            cat.items.push({
-              id: "i" + String(Date.now()),
-              name: n,
-              price: p,
-              frequency: (freq || "").trim(),
-              usage: ""
-            });
-            State.saveEssentials(doc).then(function () { UI.toast("Saved"); openEssentialsCategory(container, doc, catId); });
-          });
-        });
-      });
-    });
-
-    card.appendChild(UI.el("div", { style: "height:10px" }, []));
-    card.appendChild(addItem);
-    card.appendChild(UI.el("div", { style: "height:12px" }, []));
-
-    if (!cat.items.length) {
-      card.appendChild(UI.el("div", { className: "ui-text", text: "No products yet." }, []));
-      section.appendChild(card);
+    if (!items.length) {
+      UI.toast("No items");
       return;
     }
 
-    cat.items.forEach(function (it) {
-      var row = UI.el("div", { className: "todo-row" }, []);
-      var left = UI.el("div", { className: "todo-left" }, [
-        UI.el("div", { className: "todo-text", text: it.name + " — CHF " + formatMoney(it.price) }, [])
-      ]);
+    var html = "<div class='ui-text'><b>" + UI.escapeHtml(categoryName) + "</b></div><div style='height:10px'></div>";
+    for (var j = 0; j < items.length; j++) {
+      html += "<div class='ui-text'>• " + UI.escapeHtml(items[j].name || "—") + " · CHF " + formatMoney(items[j].price) + "</div>";
+    }
+    html += "<div style='height:10px'></div><div class='ui-text'>Enter exact item name to edit:</div>";
 
-      left.addEventListener("click", function () {
-        UI.prompt("Edit Name", "Name", it.name || "", "").then(function (v) {
-          if (v === null) return;
-          it.name = v.trim() || it.name;
+    var pick = await UI.prompt("Essentials Items", "Item name", items[0].name || "", "");
+    if (pick === null) return;
+    pick = pick.trim();
 
-          UI.prompt("Edit Price", "CHF", String(it.price || ""), "").then(function (p) {
-            if (p === null) return;
-            var np = Number(String(p).replace(",", "."));
-            if (!isNaN(np)) it.price = np;
+    var it = null;
+    for (var k = 0; k < items.length; k++) if (items[k].name === pick) { it = items[k]; break; }
+    if (!it) { UI.toast("Not found"); return; }
 
-            UI.prompt("Edit Frequency", "Frequency", it.frequency || "", "").then(function (f) {
-              if (f === null) return;
-              it.frequency = (f || "").trim();
-              State.saveEssentials(doc).then(function () { UI.toast("Saved"); openEssentialsCategory(container, doc, catId); });
-            });
-          });
-        });
-      });
-
-      var right = UI.el("div", { className: "todo-right" }, []);
-      var del = UI.el("button", { className: "btn btn-mini", type: "button", text: "Delete" }, []);
-      del.addEventListener("click", function () {
-        UI.confirm("Delete Product", "Delete " + it.name + "?").then(function (ok) {
-          if (!ok) return;
-          cat.items = cat.items.filter(function (x) { return x.id !== it.id; });
-          State.saveEssentials(doc).then(function () { UI.toast("Deleted"); openEssentialsCategory(container, doc, catId); });
-        });
-      });
-
-      right.appendChild(del);
-      row.appendChild(left);
-      row.appendChild(right);
-      card.appendChild(row);
-      card.appendChild(UI.el("div", { style: "height:8px" }, []));
-    });
-
-    section.appendChild(card);
+    await essentialsItemMenu(categoryId, it);
   }
 
-  async function openRoutines(container) {
-    removeSection(container, "maintenance-section");
-    var section = UI.el("div", { id: "maintenance-section" }, []);
-    container.appendChild(section);
+  async function essentialsItemMenu(categoryId, it) {
+    var hasImg = !!it.imageDataUrl;
+    var imgHtml = hasImg
+      ? "<div style='height:10px'></div><img alt='item' src='" + it.imageDataUrl + "' style='width:100%;max-height:180px;object-fit:cover;border-radius:12px' />"
+      : "";
 
-    var doc = await State.getRoutines();
-    doc.categories = Array.isArray(doc.categories) ? doc.categories : [];
-
-    var card = UI.el("div", { className: "card tile" }, []);
-    card.appendChild(UI.el("div", { className: "tile__label", text: "Routinen — Categories" }, []));
-
-    var addCat = UI.el("button", { className: "btn", type: "button", text: "Add Category" }, []);
-    addCat.addEventListener("click", function () {
-      UI.prompt("New Category", "Name", "", "e.g. Morning Routine").then(function (name) {
-        if (name === null) return;
-        var n = name.trim();
-        if (!n) return;
-        doc.categories.push({ id: "c" + String(Date.now()), name: n, checklists: [] });
-        State.saveRoutines(doc).then(function () { UI.toast("Saved"); openRoutines(container); });
-      });
+    UI.modal({
+      title: "Item",
+      bodyHtml:
+        "<div class='ui-text'><b>" + UI.escapeHtml(it.name || "—") + "</b></div>" +
+        "<div class='ui-text'>CHF " + formatMoney(it.price) + "</div>" +
+        "<div class='ui-text'>Freq: " + UI.escapeHtml(it.frequency || "—") + "</div>" +
+        "<div class='ui-text'>Use: " + UI.escapeHtml(it.usage || "—") + "</div>" +
+        imgHtml,
+      buttons: [
+        { text: "Edit", value: "edit", primary: true },
+        { text: "Delete", value: "delete" },
+        { text: "Close", value: "close" }
+      ],
+      onClose: function (v) {
+        if (v === "edit") essentialsEditItemFlow(categoryId, it);
+        if (v === "delete") essentialsDeleteItemFlow(categoryId, it);
+      }
     });
+  }
 
-    card.appendChild(UI.el("div", { style: "height:10px" }, []));
-    card.appendChild(addCat);
-    card.appendChild(UI.el("div", { style: "height:12px" }, []));
+  async function essentialsEditItemFlow(categoryId, it) {
+    var name = await UI.prompt("Edit Item", "Name", it.name || "", "");
+    if (name === null) return;
 
-    if (!doc.categories.length) {
-      card.appendChild(UI.el("div", { className: "ui-text", text: "No categories yet." }, []));
-      section.appendChild(card);
-      return;
+    var priceStr = await UI.prompt("Edit Item", "Price (CHF)", String(it.price || 0), "");
+    if (priceStr === null) return;
+    var price = Number(String(priceStr).replace(",", "."));
+    if (isNaN(price)) { UI.toast("Invalid price"); return; }
+
+    var freq = await UI.prompt("Edit Item", "Frequenz", it.frequency || "", "");
+    if (freq === null) return;
+
+    var usage = await UI.prompt("Edit Item", "Nutzung (optional)", it.usage || "", "");
+    if (usage === null) return;
+
+    var changeImg = await UI.confirm("Image", "Change / set image?");
+    var imageDataUrl = undefined; // keep if not changed
+    if (changeImg) {
+      var picked = await pickImageDataUrl();
+      if (picked === "__CANCEL__") return;
+      if (picked === "__NOFILE__") imageDataUrl = null;
+      else imageDataUrl = picked;
     }
 
-    doc.categories.forEach(function (cat) {
-      var row = UI.el("div", { className: "mini-row" }, []);
-      var btn = UI.el("button", { className: "btn", type: "button", text: cat.name }, []);
-      btn.addEventListener("click", function () { openRoutineCategory(container, doc, cat.id); });
-
-      var del = UI.el("button", { className: "btn btn-mini", type: "button", text: "Delete" }, []);
-      del.addEventListener("click", function () {
-        UI.confirm("Delete Category", "Delete " + cat.name + "?").then(function (ok) {
-          if (!ok) return;
-          doc.categories = doc.categories.filter(function (c) { return c.id !== cat.id; });
-          State.saveRoutines(doc).then(function () { UI.toast("Deleted"); openRoutines(container); });
-        });
-      });
-
-      row.appendChild(btn);
-      row.appendChild(del);
-      card.appendChild(row);
-      card.appendChild(UI.el("div", { style: "height:8px" }, []));
+    await State.essentialsUpdateItem(categoryId, {
+      id: it.id,
+      name: (name || "").trim(),
+      price: price,
+      frequency: String(freq || "").trim(),
+      usage: String(usage || "").trim(),
+      imageDataUrl: imageDataUrl
     });
 
-    section.appendChild(card);
+    UI.toast("Saved");
+    Router.go("maintenance", {});
   }
 
-  async function openRoutineCategory(container, doc, catId) {
-    removeSection(container, "maintenance-section");
-    var section = UI.el("div", { id: "maintenance-section" }, []);
-    container.appendChild(section);
+  async function essentialsDeleteItemFlow(categoryId, it) {
+    var ok = await UI.confirm("Delete Item", "Delete '" + (it.name || "item") + "'?");
+    if (!ok) return;
+    await State.essentialsDeleteItem(categoryId, it.id);
+    UI.toast("Deleted");
+    Router.go("maintenance", {});
+  }
 
-    var cat = doc.categories.filter(function (c) { return c.id === catId; })[0];
+  // Reads one image file and converts to DataURL (stored in IndexedDB)
+  async function pickImageDataUrl() {
+    return new Promise(function (resolve) {
+      // Build a temporary modal-like UI using UI.modal and then inject file input
+      var body = document.createElement("div");
+      body.className = "ui-text";
+      body.innerHTML = "Select an image file (stored locally).";
+
+      var input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.style.width = "100%";
+      input.style.marginTop = "10px";
+
+      body.appendChild(input);
+
+      UI.modal({
+        title: "Pick Image",
+        bodyHtml: body.outerHTML,
+        buttons: [
+          { text: "Cancel", value: "cancel" },
+          { text: "Use Image", value: "use", primary: true }
+        ],
+        onClose: function (v) {
+          // We need the real input node; easiest reliable method: re-query in DOM
+          var modal = document.querySelector(".modal");
+          var realInput = modal ? modal.querySelector("input[type='file']") : null;
+
+          if (v !== "use") { resolve("__CANCEL__"); return; }
+          if (!realInput || !realInput.files || !realInput.files[0]) { resolve("__NOFILE__"); return; }
+
+          var file = realInput.files[0];
+          var reader = new FileReader();
+          reader.onload = function () { resolve(String(reader.result || "")); };
+          reader.onerror = function () { resolve("__NOFILE__"); };
+          reader.readAsDataURL(file);
+        }
+      });
+    });
+  }
+
+  // ---------------- Routinen ----------------
+  async function routinesAddCategoryFlow() {
+    var name = await UI.prompt("Routinen", "Category name", "", "e.g. Morning");
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return;
+
+    await State.routinesAddCategory(name);
+    UI.toast("Category added");
+    Router.go("maintenance", {});
+  }
+
+  async function openRoutinesManager() {
+    var cats = await State.routinesListCategories();
+    if (!cats.length) { UI.toast("No categories"); return; }
+
+    var pick = await UI.prompt("Routinen", "Open category (exact name)", cats[0].name, "");
+    if (pick === null) return;
+    pick = pick.trim();
+
+    var cat = null;
+    for (var i = 0; i < cats.length; i++) if (cats[i].name === pick) { cat = cats[i]; break; }
+    if (!cat) { UI.toast("Not found"); return; }
+
+    routinesCategoryMenu(cat);
+  }
+
+  function routinesCategoryMenu(cat) {
+    UI.modal({
+      title: "Routinen: " + cat.name,
+      bodyHtml:
+        "<div class='ui-text'>Choose:</div>" +
+        "<div style='height:10px'></div>" +
+        "<div class='ui-text'>• Add Checklist</div>" +
+        "<div class='ui-text'>• Open Checklist</div>" +
+        "<div class='ui-text'>• Rename Category</div>" +
+        "<div class='ui-text'>• Delete Category</div>",
+      buttons: [
+        { text: "Add Checklist", value: "add", primary: true },
+        { text: "Open Checklist", value: "open" },
+        { text: "Rename", value: "rename" },
+        { text: "Delete", value: "delete" },
+        { text: "Close", value: "close" }
+      ],
+      onClose: function (v) {
+        if (v === "add") routinesAddChecklistFlow(cat.id);
+        if (v === "open") routinesOpenChecklistFlow(cat.id, cat.name);
+        if (v === "rename") routinesRenameCategoryFlow(cat.id, cat.name);
+        if (v === "delete") routinesDeleteCategoryFlow(cat.id, cat.name);
+      }
+    });
+  }
+
+  async function routinesRenameCategoryFlow(categoryId, oldName) {
+    var name = await UI.prompt("Rename Category", "New name", oldName, "");
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return;
+
+    await State.routinesRenameCategory(categoryId, name);
+    UI.toast("Renamed");
+    Router.go("maintenance", {});
+  }
+
+  async function routinesDeleteCategoryFlow(categoryId, name) {
+    var ok = await UI.confirm("Delete Category", "Delete '" + name + "' and all checklists?");
+    if (!ok) return;
+
+    await State.routinesDeleteCategory(categoryId);
+    UI.toast("Deleted");
+    Router.go("maintenance", {});
+  }
+
+  async function routinesAddChecklistFlow(categoryId) {
+    var name = await UI.prompt("Add Checklist", "Name", "", "e.g. Morning Core");
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return;
+
+    await State.routinesAddChecklist(categoryId, name);
+    UI.toast("Checklist added");
+    Router.go("maintenance", {});
+  }
+
+  async function routinesOpenChecklistFlow(categoryId, categoryName) {
+    var cats = await State.routinesListCategories();
+    var cat = null;
+    for (var i = 0; i < cats.length; i++) if (cats[i].id === categoryId) { cat = cats[i]; break; }
     if (!cat) { UI.toast("Category missing"); return; }
-    cat.checklists = Array.isArray(cat.checklists) ? cat.checklists : [];
 
-    var back = UI.el("button", { className: "btn", type: "button", text: "Back" }, []);
-    back.addEventListener("click", function () { openRoutines(container); });
-    section.appendChild(back);
-    section.appendChild(UI.el("div", { style: "height:12px" }, []));
+    var cls = Array.isArray(cat.checklists) ? cat.checklists : [];
+    if (!cls.length) { UI.toast("No checklists"); return; }
 
-    var card = UI.el("div", { className: "card tile" }, []);
-    card.appendChild(UI.el("div", { className: "tile__label", text: "Category: " + cat.name }, []));
+    var pick = await UI.prompt("Open Checklist", "Exact name", cls[0].name, "");
+    if (pick === null) return;
+    pick = pick.trim();
 
-    var addList = UI.el("button", { className: "btn", type: "button", text: "Add Checklist" }, []);
-    addList.addEventListener("click", function () {
-      UI.prompt("New Checklist", "Name", "", "e.g. Evening Reset").then(function (name) {
-        if (name === null) return;
-        var n = name.trim();
-        if (!n) return;
-        cat.checklists.push({ id: "l" + String(Date.now()), name: n, items: [] });
-        State.saveRoutines(doc).then(function () { UI.toast("Saved"); openRoutineCategory(container, doc, catId); });
-      });
-    });
+    var cl = null;
+    for (var j = 0; j < cls.length; j++) if (cls[j].name === pick) { cl = cls[j]; break; }
+    if (!cl) { UI.toast("Not found"); return; }
 
-    card.appendChild(UI.el("div", { style: "height:10px" }, []));
-    card.appendChild(addList);
-    card.appendChild(UI.el("div", { style: "height:12px" }, []));
-
-    if (!cat.checklists.length) {
-      card.appendChild(UI.el("div", { className: "ui-text", text: "No checklists yet." }, []));
-      section.appendChild(card);
-      return;
-    }
-
-    cat.checklists.forEach(function (cl) {
-      var btn = UI.el("button", { className: "btn", type: "button", text: cl.name }, []);
-      btn.addEventListener("click", function () { openChecklist(container, doc, catId, cl.id); });
-
-      card.appendChild(btn);
-      card.appendChild(UI.el("div", { style: "height:8px" }, []));
-    });
-
-    section.appendChild(card);
+    await checklistScreen(categoryId, categoryName, cl.id, cl.name);
   }
 
-  async function openChecklist(container, doc, catId, listId) {
-    removeSection(container, "maintenance-section");
-    var section = UI.el("div", { id: "maintenance-section" }, []);
-    container.appendChild(section);
+  async function checklistScreen(categoryId, categoryName, checklistId, checklistName) {
+    // Render a simple "sub-screen" in a modal for speed (no router changes)
+    var cats = await State.routinesListCategories();
+    var cat = null;
+    for (var i = 0; i < cats.length; i++) if (cats[i].id === categoryId) { cat = cats[i]; break; }
+    if (!cat) { UI.toast("Missing"); return; }
+    var cl = null;
+    for (var j = 0; j < (cat.checklists || []).length; j++) if (cat.checklists[j].id === checklistId) { cl = cat.checklists[j]; break; }
+    if (!cl) { UI.toast("Missing checklist"); return; }
 
-    var cat = doc.categories.filter(function (c) { return c.id === catId; })[0];
-    if (!cat) return;
-    var cl = (cat.checklists || []).filter(function (x) { return x.id === listId; })[0];
-    if (!cl) return;
-    cl.items = Array.isArray(cl.items) ? cl.items : [];
+    var items = Array.isArray(cl.items) ? cl.items : [];
+    var body = "<div class='ui-text'><b>" + UI.escapeHtml(categoryName) + " / " + UI.escapeHtml(checklistName) + "</b></div>";
+    body += "<div style='height:10px'></div>";
 
-    var back = UI.el("button", { className: "btn", type: "button", text: "Back" }, []);
-    back.addEventListener("click", function () { openRoutineCategory(container, doc, catId); });
-    section.appendChild(back);
-    section.appendChild(UI.el("div", { style: "height:12px" }, []));
-
-    var card = UI.el("div", { className: "card tile" }, []);
-    card.appendChild(UI.el("div", { className: "tile__label", text: "Checklist: " + cl.name }, []));
-
-    var addItem = UI.el("button", { className: "btn", type: "button", text: "Add Item" }, []);
-    addItem.addEventListener("click", function () {
-      UI.prompt("New Item", "Text", "", "e.g. Stretch 10min").then(function (txt) {
-        if (txt === null) return;
-        var t = txt.trim();
-        if (!t) return;
-        cl.items.push({ id: "i" + String(Date.now()), text: t, done: false });
-        State.saveRoutines(doc).then(function () { UI.toast("Saved"); openChecklist(container, doc, catId, listId); });
-      });
-    });
-
-    card.appendChild(UI.el("div", { style: "height:10px" }, []));
-    card.appendChild(addItem);
-    card.appendChild(UI.el("div", { style: "height:12px" }, []));
-
-    if (!cl.items.length) {
-      card.appendChild(UI.el("div", { className: "ui-text", text: "No items yet." }, []));
-      section.appendChild(card);
-      return;
+    if (!items.length) {
+      body += "<div class='ui-text'>No items yet.</div>";
+    } else {
+      for (var k = 0; k < items.length; k++) {
+        body += "<div class='ui-text'>[" + (items[k].done ? "x" : " ") + "] " + UI.escapeHtml(items[k].text) + "</div>";
+      }
+      body += "<div style='height:10px'></div><div class='ui-text'>Enter exact item text to toggle/delete:</div>";
     }
 
-    cl.items.forEach(function (it) {
-      var row = UI.el("div", { className: "todo-row" }, []);
-      var left = UI.el("div", { className: "todo-left" }, []);
-      var cb = UI.el("input", { type: "checkbox" }, []);
-      cb.checked = !!it.done;
-      cb.addEventListener("change", function () {
-        it.done = cb.checked;
-        State.saveRoutines(doc).then(function () { UI.toast("Saved"); });
-      });
-      left.appendChild(cb);
-
-      var txt = UI.el("div", { className: "todo-text", text: it.text }, []);
-      txt.addEventListener("click", function () {
-        UI.prompt("Edit Item", "Text", it.text || "", "").then(function (v) {
-          if (v === null) return;
-          it.text = v.trim() || it.text;
-          State.saveRoutines(doc).then(function () { UI.toast("Saved"); openChecklist(container, doc, catId, listId); });
-        });
-      });
-      left.appendChild(txt);
-
-      var right = UI.el("div", { className: "todo-right" }, []);
-      var del = UI.el("button", { className: "btn btn-mini", type: "button", text: "Delete" }, []);
-      del.addEventListener("click", function () {
-        UI.confirm("Delete", "Delete item?").then(function (ok) {
-          if (!ok) return;
-          cl.items = cl.items.filter(function (x) { return x.id !== it.id; });
-          State.saveRoutines(doc).then(function () { UI.toast("Deleted"); openChecklist(container, doc, catId, listId); });
-        });
-      });
-      right.appendChild(del);
-
-      row.appendChild(left);
-      row.appendChild(right);
-      card.appendChild(row);
-      card.appendChild(UI.el("div", { style: "height:8px" }, []));
+    UI.modal({
+      title: "Checklist",
+      bodyHtml: body,
+      buttons: [
+        { text: "Add Item", value: "add", primary: true },
+        { text: "Toggle Item", value: "toggle" },
+        { text: "Delete Item", value: "delItem" },
+        { text: "Reset", value: "reset" },
+        { text: "Rename", value: "rename" },
+        { text: "Delete Checklist", value: "delChecklist" },
+        { text: "Close", value: "close" }
+      ],
+      onClose: function (v) {
+        if (v === "add") routinesAddChecklistItemFlow(categoryId, checklistId, checklistName);
+        if (v === "toggle") routinesToggleItemFlow(categoryId, checklistId, items);
+        if (v === "delItem") routinesDeleteItemFlow(categoryId, checklistId, items);
+        if (v === "reset") routinesResetChecklistFlow(categoryId, checklistId);
+        if (v === "rename") routinesRenameChecklistFlow(categoryId, checklistId, checklistName);
+        if (v === "delChecklist") routinesDeleteChecklistFlow(categoryId, checklistId, checklistName);
+      }
     });
-
-    section.appendChild(card);
   }
 
-  function removeSection(container, id) {
-    var old = document.getElementById(id);
-    if (old && old.parentNode) old.parentNode.removeChild(old);
+  async function routinesAddChecklistItemFlow(categoryId, checklistId, checklistName) {
+    var text = await UI.prompt("Add Item", "Text", "", "e.g. Water 500ml");
+    if (text === null) return;
+    text = text.trim();
+    if (!text) return;
+
+    await State.routinesAddChecklistItem(categoryId, checklistId, text);
+    UI.toast("Item added");
+    Router.go("maintenance", {});
+  }
+
+  async function routinesToggleItemFlow(categoryId, checklistId, items) {
+    if (!items || !items.length) { UI.toast("No items"); return; }
+    var pick = await UI.prompt("Toggle Item", "Exact text", items[0].text, "");
+    if (pick === null) return;
+    pick = pick.trim();
+
+    var it = null;
+    for (var i = 0; i < items.length; i++) if (items[i].text === pick) { it = items[i]; break; }
+    if (!it) { UI.toast("Not found"); return; }
+
+    await State.routinesToggleChecklistItem(categoryId, checklistId, it.id);
+    UI.toast("Toggled");
+    Router.go("maintenance", {});
+  }
+
+  async function routinesDeleteItemFlow(categoryId, checklistId, items) {
+    if (!items || !items.length) { UI.toast("No items"); return; }
+    var pick = await UI.prompt("Delete Item", "Exact text", items[0].text, "");
+    if (pick === null) return;
+    pick = pick.trim();
+
+    var it = null;
+    for (var i = 0; i < items.length; i++) if (items[i].text === pick) { it = items[i]; break; }
+    if (!it) { UI.toast("Not found"); return; }
+
+    var ok = await UI.confirm("Delete", "Delete '" + it.text + "'?");
+    if (!ok) return;
+
+    await State.routinesDeleteChecklistItem(categoryId, checklistId, it.id);
+    UI.toast("Deleted");
+    Router.go("maintenance", {});
+  }
+
+  async function routinesResetChecklistFlow(categoryId, checklistId) {
+    var ok = await UI.confirm("Reset", "Set all items to unchecked?");
+    if (!ok) return;
+    await State.routinesResetChecklist(categoryId, checklistId);
+    UI.toast("Reset");
+    Router.go("maintenance", {});
+  }
+
+  async function routinesRenameChecklistFlow(categoryId, checklistId, oldName) {
+    var name = await UI.prompt("Rename Checklist", "New name", oldName, "");
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return;
+
+    await State.routinesRenameChecklist(categoryId, checklistId, name);
+    UI.toast("Renamed");
+    Router.go("maintenance", {});
+  }
+
+  async function routinesDeleteChecklistFlow(categoryId, checklistId, name) {
+    var ok = await UI.confirm("Delete Checklist", "Delete '" + name + "'?");
+    if (!ok) return;
+    await State.routinesDeleteChecklist(categoryId, checklistId);
+    UI.toast("Deleted");
+    Router.go("maintenance", {});
   }
 
   function formatMoney(n) {
