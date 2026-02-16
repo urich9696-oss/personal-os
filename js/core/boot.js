@@ -24,27 +24,42 @@
 
   function ensureDefaultStart() {
     // Dashboard ist KEIN Tab, sondern Startscreen.
-    // Beim ersten Laden ohne Hash -> Dashboard erzwingen.
     if (!location.hash || location.hash === "#") {
       location.hash = "#dashboard";
     }
   }
 
-  function boot() {
+  function renderBootError(title, details) {
+    var host = document.getElementById("app-content");
+    if (!host) return;
+    host.innerHTML = "";
+
+    var card = UI.el("div", { className: "card tile" }, [
+      UI.el("div", { className: "tile__label", text: title }, []),
+      UI.el("div", { className: "tile__value", text: details }, [])
+    ]);
+
+    host.appendChild(card);
+  }
+
+  async function boot() {
     setHeaderDate();
     wireBottomNav();
     ensureDefaultStart();
+
+    // DB + State init (no screen may touch IndexedDB directly)
+    await State.init();
+    await State.ensureTodayState();
+
     Router.init();
   }
 
-  try {
-    boot();
-  } catch (e) {
-    var host = document.getElementById("app-content");
-    if (host) {
+  (async function () {
+    try {
+      await boot();
+    } catch (e) {
       var msg = (e && e.message) ? e.message : String(e);
-      host.innerHTML = "";
-      host.appendChild(UI.el("div", { className: "card tile", html: "<div class='tile__label'>Boot Error</div><div class='tile__value'>" + msg + "</div>" }, []));
+      renderBootError("Boot Error", msg);
     }
-  }
+  })();
 })();
