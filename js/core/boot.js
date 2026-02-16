@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "0.1.1";
+  var APP_VERSION = "0.1.2";
 
   function setHeaderDate() {
     var el = document.getElementById("header-date");
@@ -112,7 +112,6 @@
     await State.init();
     await State.ensureTodayState();
 
-    // Month logic (in-app reminder)
     try {
       var res = await State.financeEnsureMonth();
       if (res && res.showReminder) UI.toast("Finance: Monat ausfüllen", 2500);
