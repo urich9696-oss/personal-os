@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "0.1.0";
+  var APP_VERSION = "0.1.1";
 
   function setHeaderDate() {
     var el = document.getElementById("header-date");
@@ -79,7 +79,7 @@
   }
 
   async function registerSW() {
-    if (!("serviceWorker" in navigator)) consideration: return;
+    if (!("serviceWorker" in navigator)) return;
 
     try {
       var reg = await navigator.serviceWorker.register("./service-worker.js?v=" + APP_VERSION, { scope: "./" });
@@ -112,12 +112,10 @@
     await State.init();
     await State.ensureTodayState();
 
-    // Finance month logic
+    // Month logic (in-app reminder)
     try {
       var res = await State.financeEnsureMonth();
-      if (res && res.showReminder) {
-        UI.toast("Finance: Monat ausfüllen", 2500);
-      }
+      if (res && res.showReminder) UI.toast("Finance: Monat ausfüllen", 2500);
     } catch (e) {}
 
     Router.init();
