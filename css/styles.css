@@ -1,373 +1,197 @@
-/* css/styles.css (FINAL, copy-paste)
-   PERSONAL OS — Apple-like minimal, off-white, liquid-glass widgets
-*/
-
 :root{
   --bg: #F6F5F2;
   --text: #121212;
-  --muted: rgba(18,18,18,0.60);
 
-  --card-bg: rgba(255,255,255,0.62);
-  --card-stroke: rgba(0,0,0,0.08);
-  --card-shadow: 0 10px 30px rgba(0,0,0,0.10);
+  --card-bg: rgba(255,255,255,0.55);
+  --card-stroke: rgba(18,18,18,0.10);
+  --shadow: 0 10px 30px rgba(0,0,0,0.10);
 
-  --nav-bg: rgba(255,255,255,0.72);
-  --nav-stroke: rgba(0,0,0,0.10);
-
-  --primary: #121212;
-  --primary-contrast: #F6F5F2;
-
-  --danger: #B3261E;
+  --danger: #C62828;
 
   --radius: 18px;
-  --radius-sm: 12px;
-
-  --pad: 16px;
-  --gap: 12px;
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-  /* iOS: keep content above nav */
   --nav-height: 64px;
 }
 
-*{ box-sizing:border-box; }
-html,body{
-  height:100%;
-  margin:0;
-  padding:0;
+*{ box-sizing: border-box; }
+html, body{ height: 100%; }
+body{
+  margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: "Instrument Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-button, input, textarea, select{
-  font-family: inherit;
-  font-size: 16px; /* prevent iOS zoom */
-}
-
-.app-shell{
+#app{
   min-height: 100vh;
-  background: var(--bg);
-  padding-top: var(--safe-top);
-  padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
-}
-
-.app-content{
-  padding: var(--pad);
-}
-
-/* ===== Bottom Nav ===== */
-.bottom-nav{
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-
-  height: var(--nav-height);
-  padding-bottom: var(--safe-bottom);
-
   display: flex;
-  align-items: center;
-  justify-content: space-around;
-
-  background: var(--nav-bg);
-  border-top: 1px solid var(--nav-stroke);
-
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-
-  z-index: 50;
-}
-
-.nav-btn{
-  appearance: none;
-  -webkit-appearance: none;
-  border: 0;
-  background: transparent;
-  padding: 10px 10px;
-  border-radius: 12px;
-
-  display:flex;
   flex-direction: column;
-  align-items:center;
-  justify-content:center;
-
-  color: rgba(18,18,18,0.65);
-  min-width: 70px;
 }
 
-.nav-btn:active{
-  transform: scale(0.98);
+.app-header{
+  padding: calc(14px + var(--safe-top)) 16px 12px 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.nav-btn .nav-icon{
-  display:block;
-  font-size: 18px;
-  line-height: 1;
-  margin-bottom: 4px;
-}
-
-.nav-btn .nav-text{
-  display:block;
-  font-size: 12px;
-  line-height: 1;
+.app-title{
+  font-size: 16px;
+  font-weight: 700;
   letter-spacing: 0.2px;
 }
 
-.nav-btn.active{
-  color: var(--text);
-  background: rgba(18,18,18,0.06);
+.app-slogan{
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.75;
 }
 
-/* ===== Typo ===== */
-h2{
-  margin: 4px 0 12px 0;
-  font-size: 22px;
-  letter-spacing: -0.3px;
+.app-date{
+  font-size: 12px;
+  opacity: 0.80;
+  white-space: nowrap;
+  padding-top: 2px;
 }
 
-h3{
-  margin: 16px 0 10px 0;
-  font-size: 16px;
-  letter-spacing: -0.2px;
-  color: rgba(18,18,18,0.85);
-}
-
-.error{
-  padding: 14px;
-  border-radius: var(--radius-sm);
-  background: rgba(179,38,30,0.08);
-  border: 1px solid rgba(179,38,30,0.20);
-  color: #5b0f0a;
-}
-
-/* ===== Liquid Glass Card ===== */
-.dash-card,
-.vault-card,
-.todo-row,
-.finance > div,
-.maintenance > div{
-  /* some elements use their own structure; cards below handle it */
+.app-content{
+  flex: 1;
+  padding: 0 16px calc(var(--nav-height) + 16px + var(--safe-bottom)) 16px;
 }
 
 .card{
   background: var(--card-bg);
   border: 1px solid var(--card-stroke);
   border-radius: var(--radius);
-  box-shadow: var(--card-shadow);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.block{
-  padding: 14px;
-}
-
-/* ===== Dashboard ===== */
-.dashboard{
-  display:flex;
-  flex-direction: column;
-  gap: var(--gap);
-}
-
-.dash-header{
-  padding: 14px;
-  border-radius: var(--radius);
-  background: rgba(255,255,255,0.35);
-  border: 1px solid rgba(0,0,0,0.06);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 10px 24px rgba(0,0,0,0.06);
-}
-
-.dash-title{
-  font-size: 20px;
+.section-title{
+  margin: 14px 0 10px 0;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: -0.4px;
 }
 
-.dash-sub{
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--muted);
+.grid-2{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
-.dash-card{
+.tile{
   padding: 14px;
-  border-radius: var(--radius);
-  background: var(--card-bg);
-  border: 1px solid var(--card-stroke);
-  box-shadow: var(--card-shadow);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
 }
 
-.dash-meta{
+.tile__label{
   font-size: 12px;
-  color: var(--muted);
+  opacity: 0.75;
 }
 
-.dash-date{
-  margin-top: 4px;
-  font-size: 14px;
-  color: rgba(18,18,18,0.85);
-}
-
-.dash-status{
-  margin-top: 10px;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  opacity: 0.9;
-}
-
-.dash-value{
+.tile__value{
   margin-top: 8px;
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.6px;
-}
-
-.primary-action{
-  border: 0;
-  border-radius: 16px;
-  padding: 14px 16px;
-  background: var(--primary);
-  color: var(--primary-contrast);
+  font-size: 16px;
   font-weight: 700;
-  box-shadow: 0 10px 24px rgba(0,0,0,0.18);
 }
 
-.primary-action:active{
-  transform: scale(0.99);
+.row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.dash-quick{
-  display:flex;
-  gap: 10px;
-}
-
-.dash-quick button{
-  flex: 1;
-  border: 1px solid rgba(0,0,0,0.10);
-  border-radius: 14px;
-  padding: 12px 10px;
-  background: rgba(255,255,255,0.55);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  color: var(--text);
-  box-shadow: 0 8px 18px rgba(0,0,0,0.08);
-}
-
-.dash-quick button:active{
-  transform: scale(0.99);
-}
-
-/* ===== Inputs ===== */
-input, textarea, select{
-  width: 100%;
-  border-radius: 14px;
-  border: 1px solid rgba(0,0,0,0.10);
-  padding: 12px 12px;
-  background: rgba(255,255,255,0.70);
-  color: var(--text);
-  outline: none;
-}
-
-textarea{
-  min-height: 86px;
-  resize: vertical;
-}
-
-input::placeholder, textarea::placeholder{
-  color: rgba(18,18,18,0.45);
-}
-
-select{
+.btn{
   appearance: none;
-  -webkit-appearance: none;
-}
-
-/* Buttons inside screens */
-.mindset button,
-.path button,
-.finance button,
-.maintenance button{
-  margin-top: 10px;
-  border: 0;
-  border-radius: 14px;
-  padding: 12px 12px;
-  background: rgba(18,18,18,0.08);
+  border: 1px solid rgba(18,18,18,0.15);
+  background: rgba(255,255,255,0.60);
   color: var(--text);
-}
-
-.mindset button:active,
-.path button:active,
-.finance button:active,
-.maintenance button:active{
-  transform: scale(0.99);
-}
-
-/* Danger style used in maintenance reset */
-.maintenance button[style*="background: red"]{
   border-radius: 14px;
+  padding: 12px 14px;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
 }
 
-/* ===== Mindset ===== */
-.mindset{
-  display:flex;
-  flex-direction: column;
-  gap: var(--gap);
+.btn:active{
+  transform: translateY(1px);
 }
 
-.vault-card{
-  margin-top: 10px;
-  padding: 14px;
-  border-radius: var(--radius);
-  background: rgba(255,255,255,0.62);
-  border: 1px solid rgba(0,0,0,0.08);
-  box-shadow: 0 10px 22px rgba(0,0,0,0.08);
-}
-
-/* ===== Path ===== */
-.path{
-  display:flex;
-  flex-direction: column;
-  gap: var(--gap);
-}
-
-.todo-row{
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  padding: 12px 12px;
+.select{
+  width: 100%;
+  appearance: none;
+  border: 1px solid rgba(18,18,18,0.15);
+  background: rgba(255,255,255,0.60);
+  color: var(--text);
   border-radius: 14px;
-  border: 1px solid rgba(0,0,0,0.08);
-  background: rgba(255,255,255,0.58);
-  -webkit-backdrop-filter: blur(14px);
+  padding: 12px 14px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.bottom-nav{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--nav-height) + var(--safe-bottom));
+  padding: 10px 12px calc(10px + var(--safe-bottom)) 12px;
+  background: rgba(246,245,242,0.80);
+  border-top: 1px solid rgba(18,18,18,0.08);
   backdrop-filter: blur(14px);
-  box-shadow: 0 8px 16px rgba(0,0,0,0.06);
+  -webkit-backdrop-filter: blur(14px);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  z-index: 50;
 }
 
-/* ===== Finance ===== */
-.finance{
-  display:flex;
+.bottom-nav__btn{
+  appearance: none;
+  border: 1px solid rgba(18,18,18,0.10);
+  background: rgba(255,255,255,0.45);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 10px 8px;
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.bottom-nav__btn.is-active{
+  border-color: rgba(18,18,18,0.22);
+  background: rgba(255,255,255,0.70);
+}
+
+.toast-host{
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--nav-height) + 12px + var(--safe-bottom));
+  display: flex;
   flex-direction: column;
-  gap: var(--gap);
+  gap: 8px;
+  z-index: 60;
+  pointer-events: none;
 }
 
-/* ===== Maintenance ===== */
-.maintenance{
-  display:flex;
-  flex-direction: column;
-  gap: var(--gap);
-}
-
-/* ===== Reduce tap highlight on iOS ===== */
-a, button{
-  -webkit-tap-highlight-color: rgba(0,0,0,0);
+.toast{
+  pointer-events: none;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(18,18,18,0.12);
+  background: rgba(255,255,255,0.75);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 13px;
+  font-weight: 700;
 }
