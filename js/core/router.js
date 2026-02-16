@@ -1,10 +1,9 @@
 // js/core/router.js
 // PERSONAL OS — Router (Hash-based, Dashboard-first, Params, iOS-safe)
-// - No modules
-// - Defensive: no throws
+// FIX: supports BOTH "#dashboard" and "#/dashboard" (legacy) and normalizes.
 // - Supports: Router.go("screen"), Router.init(), getParam/setParam/clearParams
-// - Deep link format: #screen?key=value&k2=v2
-// - Emits: window.dispatchEvent(new CustomEvent("personalos:navigated",{detail:{screen}}))
+// - Deep link format: #screen?key=value  OR  #/screen?key=value
+// - Emits: "personalos:navigated"
 
 (function () {
   "use strict";
@@ -29,7 +28,7 @@
     try { return document.getElementById("app-content"); } catch (_) { return null; }
   }
 
-  function logDiag(line) {
+  function diag(line) {
     try {
       var card = document.getElementById("diag-card");
       var pre = document.getElementById("diag-log");
@@ -39,21 +38,40 @@
     } catch (_) {}
   }
 
+  function normalizeScreenName(name) {
+    // Accept "dashboard", "/dashboard", "///dashboard"
+    try {
+      var s = safeStr(name || "").trim();
+      while (s.charAt(0) === "/") s = s.slice(1);
+      return s;
+    } catch (_) {
+      return "";
+    }
+  }
+
   function parseHash() {
-    // Expected: "#dashboard" or "#vault?dayKey=2026-02-16"
+    // Supports:
+    // "#dashboard" or "#/dashboard"
+    // "#vault?dayKey=YYYY-MM-DD" or "#/vault?dayKey=..."
     try {
       var h = safeStr(location.hash || "");
       if (!h) return { screen: "", query: "" };
-      if (h[0] === "#") h = h.slice(1);
+
+      if (h.charAt(0) === "#") h = h.slice(1);
+
+      // Legacy: allow leading "/" after "#"
+      h = normalizeScreenName(h);
+
       var parts = h.split("?");
-      return { screen: safeStr(parts[0] || ""), query: safeStr(parts[1] || "") };
+      var screen = normalizeScreenName(parts[0] || "");
+      var query = safeStr(parts[1] || "");
+      return { screen: screen, query: query };
     } catch (_) {
       return { screen: "", query: "" };
     }
   }
 
   function parseQuery(qs) {
-    // returns object
     var out = {};
     try {
       var q = safeStr(qs || "");
@@ -75,8 +93,9 @@
   }
 
   function buildHash(screen, params) {
+    // Normalize to "#dashboard" (NO leading slash) to stop legacy "#/..."
     try {
-      var s = safeStr(screen || "");
+      var s = normalizeScreenName(screen || "");
       if (!s) s = DEFAULT_SCREEN;
 
       var q = "";
@@ -88,6 +107,7 @@
           if (!Object.prototype.hasOwnProperty.call(params, k)) continue;
           var v = params[k];
           if (v === null || typeof v === "undefined") continue;
+
           var kk = "";
           var vv = "";
           try { kk = encodeURIComponent(safeStr(k)); } catch (_) { kk = safeStr(k); }
@@ -109,7 +129,6 @@
       try {
         ev = new CustomEvent("personalos:navigated", { detail: { screen: safeStr(screenName || "") } });
       } catch (_) {
-        // IE fallback not needed, but keep safe
         ev = document.createEvent("CustomEvent");
         ev.initCustomEvent("personalos:navigated", false, false, { screen: safeStr(screenName || "") });
       }
@@ -120,12 +139,12 @@
   async function mountScreen(screenName) {
     var host = getHostEl();
     if (!host) {
-      logDiag("ROUTER: #app-content missing.");
+      diag("ROUTER: #app-content missing.");
       return false;
     }
 
     if (!window.ScreenRegistry || typeof window.ScreenRegistry.get !== "function") {
-      logDiag("ROUTER: ScreenRegistry missing.");
+      diag("ROUTER: ScreenRegistry missing or has no get().");
       host.innerHTML = "<div class='error'>System error: ScreenRegistry missing</div>";
       return false;
     }
@@ -134,7 +153,7 @@
     try { def = window.ScreenRegistry.get(screenName); } catch (_) { def = null; }
 
     if (!def || typeof def.mount !== "function") {
-      // Unknown screen -> fallback to dashboard
+      diag("ROUTER: Unknown screen '" + safeStr(screenName) + "'. Fallback -> dashboard.");
       if (screenName !== DEFAULT_SCREEN) {
         return await navigateTo(DEFAULT_SCREEN, true);
       }
@@ -146,10 +165,8 @@
       await def.mount(host, { screen: screenName, params: _params });
       return true;
     } catch (e) {
-      logDiag("ROUTER: mount failed for '" + safeStr(screenName) + "': " + safeStr(e && e.message ? e.message : e));
-      try {
-        host.innerHTML = "<div class='error'>Screen failed: " + safeStr(screenName) + "</div>";
-      } catch (_) {}
+      diag("ROUTER: mount failed '" + safeStr(screenName) + "': " + safeStr(e && e.message ? e.message : e));
+      try { host.innerHTML = "<div class='error'>Screen failed: " + safeStr(screenName) + "</div>"; } catch (_) {}
       return false;
     }
   }
@@ -159,25 +176,20 @@
     _isNavigating = true;
 
     try {
-      var target = safeStr(screenName || "").trim();
+      var target = normalizeScreenName(screenName || "");
       if (!target) target = DEFAULT_SCREEN;
 
-      // Set hash (this is your "URL state")
       var hash = buildHash(target, _params);
 
       try {
         if (replace) location.replace(hash);
         else location.hash = hash;
-      } catch (_) {
-        // ignore
-      }
+      } catch (_) {}
 
       _currentScreen = target;
 
-      // Mount immediately (don’t rely on hashchange for iOS quirks)
       var ok = await mountScreen(target);
 
-      // Notify nav binding
       emitNavigated(target);
 
       return ok;
@@ -190,29 +202,33 @@
     init: async function () {
       try {
         var parsed = parseHash();
-        var screen = safeStr(parsed.screen || "").trim();
+        var screen = normalizeScreenName(parsed.screen || "");
         var query = safeStr(parsed.query || "");
 
-        // If no screen in hash -> dashboard
         if (!screen) {
           _params = {};
           _currentScreen = DEFAULT_SCREEN;
-          // Ensure hash reflects state (use replace to avoid history spam)
           try { location.replace(buildHash(DEFAULT_SCREEN, {})); } catch (_) {}
           await mountScreen(DEFAULT_SCREEN);
           emitNavigated(DEFAULT_SCREEN);
           return true;
         }
 
-        // Parse params from hash query (deep-link)
         _params = parseQuery(query);
 
         _currentScreen = screen;
+
+        // Normalize legacy "#/dashboard" -> "#dashboard" once (replace)
+        try {
+          var normalized = buildHash(screen, _params);
+          if (safeStr(location.hash || "") !== normalized) location.replace(normalized);
+        } catch (_) {}
+
         var ok = await mountScreen(screen);
         emitNavigated(screen);
         return ok;
       } catch (e) {
-        logDiag("ROUTER.init failed: " + safeStr(e && e.message ? e.message : e));
+        diag("ROUTER.init failed: " + safeStr(e && e.message ? e.message : e));
         try {
           _params = {};
           _currentScreen = DEFAULT_SCREEN;
@@ -224,7 +240,6 @@
     },
 
     go: function (screenName) {
-      // Keep existing params unless caller cleared; most screens do one-shot clear
       return navigateTo(screenName, false);
     },
 
@@ -236,7 +251,6 @@
       return _currentScreen || DEFAULT_SCREEN;
     },
 
-    // Params API
     getParam: function (key) {
       try { return _params[safeStr(key)]; } catch (_) { return null; }
     },
