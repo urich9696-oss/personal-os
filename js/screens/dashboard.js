@@ -1,13 +1,12 @@
 // js/screens/dashboard.js
 // PERSONAL OS — Dashboard (Command Engine)
-// FIX: Removed dependency on missing State.getTodaySnapshot()
-// Now builds snapshot from existing State APIs (iOS/Safari-safe, no new State changes).
+// FIX: No dependency on missing State.getTodaySnapshot()
+// Builds snapshot from existing State APIs (iOS/Safari-safe, no new State changes).
 
 (function () {
   "use strict";
 
   if (!window.ScreenRegistry || typeof window.ScreenRegistry.register !== "function") {
-    // If registry isn't ready, do nothing (boot will surface error)
     return;
   }
 
@@ -16,7 +15,6 @@
       try {
         container.innerHTML = "";
 
-        // --- Build "today snapshot" from existing State APIs ---
         var today = (window.State && typeof window.State.getTodayKey === "function")
           ? window.State.getTodayKey()
           : new Date().toISOString().split("T")[0];
@@ -28,7 +26,6 @@
           }
         } catch (_) {}
 
-        // Blocks + next block
         var blocks = [];
         try {
           if (window.State && typeof window.State.listBlocks === "function") {
@@ -38,7 +35,6 @@
 
         var nextBlock = getNextBlock(blocks);
 
-        // Performance from Journal todos
         var perf = { pct: 0, done: 0, total: 0 };
         try {
           if (window.State && typeof window.State.getJournal === "function") {
@@ -55,7 +51,6 @@
           }
         } catch (_) {}
 
-        // Budget summary (month)
         var budget = { income: 0, expense: 0, remaining: 0, remainingPct: 0, spentPct: 0, month: String(today).slice(0, 7) };
         try {
           if (window.State && typeof window.State.getMonthKey === "function" && typeof window.State.getMonthlySummary === "function") {
@@ -64,7 +59,6 @@
           }
         } catch (_) {}
 
-        // Gatekeeper counts
         var gk = { locked: 0, eligible: 0, purchased: 0, total: 0 };
         try {
           if (window.State && typeof window.State.getGatekeeperCounts === "function") {
@@ -72,11 +66,9 @@
           }
         } catch (_) {}
 
-        // --- Render UI ---
         var root = document.createElement("div");
         root.className = "dashboard";
 
-        // Header
         var header = document.createElement("div");
         header.className = "dash-header";
         header.innerHTML =
@@ -84,7 +76,6 @@
           "<div class='dash-sub'>The Architecture of Excellence.</div>";
         root.appendChild(header);
 
-        // Snapshot Card
         var snapCard = document.createElement("div");
         snapCard.className = "dash-card";
 
@@ -141,7 +132,6 @@
 
         root.appendChild(snapCard);
 
-        // Primary Action (guard Router.setParams)
         var primary = document.createElement("button");
         primary.className = "primary-action";
         primary.id = "primary-action";
@@ -171,7 +161,6 @@
 
         root.appendChild(primary);
 
-        // Quick Actions
         var quickRow = document.createElement("div");
         quickRow.className = "dash-quick";
 
@@ -204,7 +193,6 @@
         quickRow.appendChild(btnGK);
         root.appendChild(quickRow);
 
-        // Quick Add Block
         var blockCard = document.createElement("div");
         blockCard.className = "dash-card";
         blockCard.innerHTML = "<div style='font-weight:900; margin-bottom:8px;'>Quick Add Block</div>";
@@ -276,8 +264,6 @@
         container.innerHTML = "<div class='error'>Dashboard failed to load</div>";
       }
 
-      // ---- helpers ----
-
       function safeGo(screen) {
         try {
           if (window.Router && typeof window.Router.go === "function") window.Router.go(screen);
@@ -286,7 +272,13 @@
 
       function safeSetParams(obj) {
         try {
-          if (window.Router && typeof window.Router.setParams === "function") window.Router.setParams(obj);
+          if (!window.Router) return;
+          if (typeof window.Router.setParams === "function") { window.Router.setParams(obj); return; }
+          if (typeof window.Router.setParam === "function" && obj && typeof obj === "object") {
+            for (var k in obj) {
+              if (Object.prototype.hasOwnProperty.call(obj, k)) window.Router.setParam(k, obj[k]);
+            }
+          }
         } catch (_) {}
       }
 
@@ -297,15 +289,23 @@
           var now = new Date();
           var nowMin = now.getHours() * 60 + now.getMinutes();
 
+          // 1) active block (start <= now < end)
           for (var i = 0; i < blocks.length; i++) {
             var b = blocks[i];
             if (!b || !b.start || !b.end) continue;
-            var startMin = timeToMinutesSafe(b.start);
-            // Next upcoming (including currently active)
-            if (startMin >= nowMin) return b;
+            var sMin = timeToMinutesSafe(b.start);
+            var eMin = timeToMinutesSafe(b.end);
+            if (sMin <= nowMin && nowMin < eMin) return b;
           }
 
-          // If none upcoming, return null (or last block optional)
+          // 2) next upcoming
+          for (var j = 0; j < blocks.length; j++) {
+            var bb = blocks[j];
+            if (!bb || !bb.start) continue;
+            var st = timeToMinutesSafe(bb.start);
+            if (st > nowMin) return bb;
+          }
+
           return null;
         } catch (_) {
           return null;
@@ -316,7 +316,6 @@
         try {
           if (window.State && typeof window.State.timeToMinutes === "function") return window.State.timeToMinutes(str);
         } catch (_) {}
-        // fallback
         var parts = String(str || "").split(":");
         var h = parseInt(parts[0] || "0", 10);
         var m = parseInt(parts[1] || "0", 10);
