@@ -90,6 +90,10 @@ body{
   padding: 14px;
 }
 
+.tile-click{
+  cursor: pointer;
+}
+
 .tile__label{
   font-size: 12px;
   opacity: 0.75;
@@ -122,6 +126,12 @@ body{
 
 .btn:active{
   transform: translateY(1px);
+}
+
+.btn-mini{
+  padding: 10px 10px;
+  font-size: 12px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.08);
 }
 
 .select{
@@ -194,4 +204,146 @@ body{
   -webkit-backdrop-filter: blur(12px);
   font-size: 13px;
   font-weight: 700;
+}
+
+/* --- UI Modal --- */
+.ui-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 100;
+}
+
+.ui-modal{
+  width: 100%;
+  max-width: 520px;
+  padding: 14px;
+}
+
+.ui-modal__header{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ui-modal__title{
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.ui-modal__body{
+  margin-top: 10px;
+}
+
+.ui-modal__footer{
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.ui-text{
+  font-size: 13px;
+  opacity: 0.85;
+  line-height: 1.35;
+}
+
+.ui-input{
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(18,18,18,0.15);
+  background: rgba(255,255,255,0.65);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.ui-textarea{
+  width: 100%;
+  border-radius: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(18,18,18,0.15);
+  background: rgba(255,255,255,0.65);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  resize: vertical;
+}
+
+.q-block{
+  margin-top: 6px;
+}
+
+.q-title{
+  font-weight: 800;
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+
+.todo-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.todo-left{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-text{
+  font-weight: 800;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-right{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.mini-row{
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.vault-item{
+  width: 100%;
+}
+
+.progress-wrap{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-bar{
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(18,18,18,0.12);
+  background: rgba(255,255,255,0.50);
+  overflow: hidden;
+}
+
+.progress-fill{
+  height: 100%;
+  background: rgba(18,18,18,0.55);
 }
