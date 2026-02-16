@@ -1,132 +1,104 @@
-/* PERSONAL OS — Service Worker (GitHub Pages subpath safe, offline-first)
- *
- * Goals:
- * - Works under https://USERNAME.github.io/personal-os/ (subpath)
- * - Cache app shell for offline start
- * - SPA navigation: serve cached index.html for navigations
- * - Versioning via CACHE_VERSION bump
- * - Kill switch handled in boot.js via ?nosw=1 (unregister + caches delete + reload)
- */
+/* PERSONAL OS — Service Worker (GitHub Pages subpath-safe)
+   - Cache-first app shell
+   - Navigation requests fall back to cached index.html
+   - Version bump controls updates
+*/
 
-const CACHE_VERSION = "0.1.0";
+const CACHE_VERSION = "0.1.2";
 const CACHE_NAME = `personal-os-${CACHE_VERSION}`;
 
-// Derive base path from SW scope (ends with '/')
-function getBasePath() {
-  try {
-    const url = new URL(self.registration.scope);
-    return url.pathname; // e.g. "/personal-os/"
-  } catch (e) {
-    return "/";
-  }
+function sameOrigin(url) {
+  try { return new URL(url).origin === self.location.origin; } catch (e) { return false; }
 }
 
-function withBase(path) {
-  const base = getBasePath();
-  // Ensure no leading slash in path
-  const p = path.startsWith("/") ? path.slice(1) : path;
-  return base + p;
-}
-
-// App shell assets to precache
-function precacheList() {
-  return [
-    withBase("index.html?v=" + CACHE_VERSION),
-    withBase("css/styles.css?v=" + CACHE_VERSION),
-
-    withBase("js/core/ui.js?v=" + CACHE_VERSION),
-    withBase("js/core/db.js?v=" + CACHE_VERSION),
-    withBase("js/core/state.js?v=" + CACHE_VERSION),
-    withBase("js/core/registry.js?v=" + CACHE_VERSION),
-    withBase("js/core/router.js?v=" + CACHE_VERSION),
-    withBase("js/core/boot.js?v=" + CACHE_VERSION),
-
-    withBase("js/screens/dashboard.js?v=" + CACHE_VERSION),
-    withBase("js/screens/alignment.js?v=" + CACHE_VERSION),
-    withBase("js/screens/maintenance.js?v=" + CACHE_VERSION),
-    withBase("js/screens/path.js?v=" + CACHE_VERSION),
-    withBase("js/screens/finance.js?v=" + CACHE_VERSION),
-    withBase("js/screens/settings.js?v=" + CACHE_VERSION),
-    withBase("js/screens/vault.js?v=" + CACHE_VERSION),
-
-    withBase("manifest.webmanifest"),
-    withBase("assets/icons/icon-192.png"),
-    withBase("assets/icons/icon-512.png")
-  ];
+function isNavigationRequest(request) {
+  return request.mode === "navigate";
 }
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
+    self.skipWaiting();
+
+    // Base path is implied by scope; cache relative URLs so it works under /personal-os/
+    const ASSETS = [
+      "./",
+      "./index.html?v=" + CACHE_VERSION,
+      "./manifest.webmanifest?v=" + CACHE_VERSION,
+
+      "./css/styles.css?v=" + CACHE_VERSION,
+
+      "./js/core/ui.js?v=" + CACHE_VERSION,
+      "./js/core/db.js?v=" + CACHE_VERSION,
+      "./js/core/state.js?v=" + CACHE_VERSION,
+      "./js/core/registry.js?v=" + CACHE_VERSION,
+      "./js/core/router.js?v=" + CACHE_VERSION,
+      "./js/core/boot.js?v=" + CACHE_VERSION,
+
+      "./js/screens/dashboard.js?v=" + CACHE_VERSION,
+      "./js/screens/alignment.js?v=" + CACHE_VERSION,
+      "./js/screens/maintenance.js?v=" + CACHE_VERSION,
+      "./js/screens/path.js?v=" + CACHE_VERSION,
+      "./js/screens/finance.js?v=" + CACHE_VERSION,
+      "./js/screens/settings.js?v=" + CACHE_VERSION,
+      "./js/screens/vault.js?v=" + CACHE_VERSION,
+
+      "./assets/icons/icon-192.png",
+      "./assets/icons/icon-512.png"
+    ];
+
     const cache = await caches.open(CACHE_NAME);
-    // Use addAll; if any fails (e.g., missing icons) install will fail
-    await cache.addAll(precacheList());
-    await self.skipWaiting();
+    await cache.addAll(ASSETS);
   })());
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
+    self.clients.claim();
+
     const keys = await caches.keys();
-    await Promise.all(
-      keys.map((k) => (k.startsWith("personal-os-") && k !== CACHE_NAME) ? caches.delete(k) : Promise.resolve())
-    );
-    await self.clients.claim();
+    for (const k of keys) {
+      if (k !== CACHE_NAME) await caches.delete(k);
+    }
   })());
 });
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
 
-  // Only handle GET
-  if (req.method !== "GET") return;
+  // Only handle same-origin
+  if (!sameOrigin(req.url)) return;
 
-  const url = new URL(req.url);
-  const basePath = getBasePath();
-
-  // Only handle same-origin and within scope path
-  const sameOrigin = url.origin === self.location.origin;
-  const inScope = url.pathname.startsWith(basePath);
-  if (!sameOrigin || !inScope) return;
-
-  // SPA navigation -> serve cached index.html
-  const isNav = req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html");
-  if (isNav) {
-    event.respondWith((async () => {
-      const cache = await caches.open(CACHE_NAME);
-
-      // Prefer cached index.html (without query)
-      const cached = await cache.match(withBase("index.html?v=" + CACHE_VERSION));
-      if (cached) return cached;
-
-      // Fallback network then cache
-      try {
-        const fresh = await fetch(withBase("index.html?v=" + CACHE_VERSION), { cache: "no-store" });
-        if (fresh && fresh.ok) cache.put(withBase("index.html?v=" + CACHE_VERSION), fresh.clone());
-        return fresh;
-      } catch (e) {
-        // Absolute last resort: try bare index.html
-        const cached2 = await cache.match(withBase("index.html"));
-        if (cached2) return cached2;
-        return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
-      }
-    })());
-    return;
-  }
-
-  // Cache-first for all other app assets within scope
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
-    const cached = await cache.match(req);
+
+    // SPA navigation fallback
+    if (isNavigationRequest(req)) {
+      const cached = await cache.match("./index.html?v=" + CACHE_VERSION, { ignoreSearch: true });
+      if (cached) return cached;
+
+      // last resort network
+      try {
+        const net = await fetch(req);
+        return net;
+      } catch (e) {
+        return new Response("Offline", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+    }
+
+    // Cache-first for assets
+    const cached = await cache.match(req, { ignoreSearch: false });
     if (cached) return cached;
 
+    // Network fallback + opportunistic cache
     try {
-      const fresh = await fetch(req);
-      if (fresh && fresh.ok) {
-        cache.put(req, fresh.clone());
+      const net = await fetch(req);
+      if (net && net.ok) {
+        try { await cache.put(req, net.clone()); } catch (e) {}
       }
-      return fresh;
+      return net;
     } catch (e) {
-      return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
+      // If asset missing and offline
+      return new Response("", { status: 504 });
     }
   })());
 });
