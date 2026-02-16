@@ -1,239 +1,54 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Personal OS</title>
-
-  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#F6F5F2" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="Personal OS" />
-  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
 
-  <link rel="stylesheet" href="./css/styles.css" />
+  <title>PERSONAL OS — The Architecture of Excellence.</title>
+
+  <link rel="stylesheet" href="css/styles.css?v=0.1.0" />
 </head>
-
 <body>
-  <div class="app-shell">
-    <main id="app-content" class="app-content" aria-label="App content">
-      <div class="dash-card" style="margin-top: 12px;">
-        <div style="font-weight:900;">Loading…</div>
-        <div style="font-size:13px; opacity:0.75; margin-top:6px;">
-          Wenn dieser Screen hängen bleibt: SW kill switch via <b>?nosw=1</b> nutzen.
-        </div>
+  <div id="app">
+    <header class="app-header">
+      <div class="app-header__left">
+        <div class="app-title">PERSONAL OS</div>
+        <div class="app-slogan">The Architecture of Excellence.</div>
       </div>
-
-      <div id="diag-card" class="dash-card" style="margin-top: 12px; border: 1px solid rgba(160, 60, 60, 0.25); display:none;">
-        <div style="font-weight:900; color:#7a1f1f;">Diagnostics</div>
-        <pre id="diag-log" style="white-space:pre-wrap; font-size:12px; opacity:0.85; margin-top:8px;"></pre>
+      <div class="app-header__right">
+        <div id="header-date" class="app-date">—</div>
       </div>
-    </main>
+    </header>
 
-    <nav class="bottom-nav" aria-label="Bottom navigation">
-      <button class="nav-btn" type="button" data-target="mindset" aria-label="Mindset">
-        <span class="nav-icon">◻︎</span>
-        <span class="nav-text">Mindset</span>
-      </button>
+    <main id="app-content" class="app-content" aria-live="polite"></main>
 
-      <button class="nav-btn" type="button" data-target="path" aria-label="Today’s Path">
-        <span class="nav-icon">↦</span>
-        <span class="nav-text">Today</span>
-      </button>
-
-      <button class="nav-btn" type="button" data-target="maintenance" aria-label="Maintenance">
-        <span class="nav-icon">⚙︎</span>
-        <span class="nav-text">System</span>
-      </button>
-
-      <button class="nav-btn" type="button" data-target="finance" aria-label="Finance">
-        <span class="nav-icon">◎</span>
-        <span class="nav-text">Finance</span>
-      </button>
+    <nav class="bottom-nav" aria-label="Bottom Navigation">
+      <button class="bottom-nav__btn" data-route="alignment" type="button">Alignment</button>
+      <button class="bottom-nav__btn" data-route="maintenance" type="button">Maintenance</button>
+      <button class="bottom-nav__btn" data-route="path" type="button">Today’s Path</button>
+      <button class="bottom-nav__btn" data-route="finance" type="button">Finance</button>
+      <button class="bottom-nav__btn" data-route="settings" type="button">Settings</button>
     </nav>
+
+    <div id="toast-host" class="toast-host" aria-live="assertive" aria-atomic="true"></div>
   </div>
 
-  <!-- ===== P0: SW kill switch + on-screen diagnostics (no DevTools) ===== -->
-  <script>
-    (function () {
-      "use strict";
-
-      var VERSION = "2026-02-16-02"; // bump this when deploying
-
-      var diagCard = null;
-      var diagLog = null;
-      var lines = [];
-      var startedAt = Date.now();
-
-      function $(id) { try { return document.getElementById(id); } catch (_) { return null; } }
-      function showDiag() {
-        if (!diagCard) diagCard = $("diag-card");
-        if (!diagLog) diagLog = $("diag-log");
-        if (diagCard) diagCard.style.display = "block";
-        if (diagLog) diagLog.textContent = lines.join("\n");
-      }
-      function log(line) { lines.push(line); showDiag(); }
-      function safeStr(v) { try { return String(v); } catch (_) { return "[unprintable]"; } }
-
-      function postCheck(label) {
-        var ms = Date.now() - startedAt;
-        var tState = "throws";
-        var tWinState = "throws";
-        try { tState = (typeof State); } catch (_) {}
-        try { tWinState = (typeof window.State); } catch (_) {}
-        log(label + " @+" + ms + "ms");
-        log("VERSION = " + VERSION);
-        log("href = " + safeStr(location.href));
-        log("typeof State = " + tState);
-        log("typeof window.State = " + tWinState);
-      }
-
-      window.addEventListener("error", function (ev) {
-        try {
-          var t = ev && ev.target;
-          var src = t && t.tagName === "SCRIPT" ? t.src : null;
-          if (src) log("RESOURCE ERROR: failed to load <script>: " + src);
-          else log("RUNTIME ERROR: " + safeStr(ev && ev.message) + " @ " + safeStr(ev && ev.filename) + ":" + safeStr(ev && ev.lineno));
-        } catch (_) {}
-      }, true);
-
-      window.addEventListener("unhandledrejection", function (ev) {
-        try { log("UNHANDLED PROMISE: " + safeStr(ev && ev.reason)); } catch (_) {}
-      });
-
-      async function killSWAndCaches() {
-        log("SW-KILL: requested. Unregistering service workers + deleting caches...");
-        var okSW = false, okCaches = false;
-
-        try {
-          if ("serviceWorker" in navigator) {
-            var regs = await navigator.serviceWorker.getRegistrations();
-            for (var i = 0; i < regs.length; i++) {
-              try { await regs[i].unregister(); okSW = true; } catch (_) {}
-            }
-          }
-        } catch (_) {}
-
-        try {
-          if (window.caches && typeof caches.keys === "function") {
-            var keys = await caches.keys();
-            for (var k = 0; k < keys.length; k++) {
-              try { await caches.delete(keys[k]); okCaches = true; } catch (_) {}
-            }
-          }
-        } catch (_) {}
-
-        log("SW-KILL result: sw=" + (okSW ? "ok" : "n/a") + " caches=" + (okCaches ? "ok" : "n/a"));
-        log("SW cleared → reloading without ?nosw=1 ...");
-
-        try {
-          var url = new URL(location.href);
-          url.searchParams.delete("nosw");
-          url.searchParams.set("v", String(Date.now()));
-          location.replace(url.toString());
-        } catch (_) {
-          location.href = location.pathname + "?v=" + Date.now();
-        }
-      }
-
-      try {
-        var q = location.search || "";
-        if (q.indexOf("nosw=1") !== -1) {
-          showDiag();
-          killSWAndCaches();
-          return;
-        }
-      } catch (_) {}
-
-      setTimeout(function () { postCheck("BOOT CHECK"); }, 800);
-
-      try { window.__APP_VERSION__ = VERSION; } catch (_) {}
-    })();
-  </script>
-
-  <!-- Core (versioned URLs -> bypass stale caches) -->
-  <script src="./js/core/state.js?v=2026-02-16-01"></script>
-  <script src="./js/core/registry.js?v=2026-02-16-01"></script>
-  <script src="./js/core/router.js?v=2026-02-16-01"></script>
+  <!-- Core (no modules, strict load order) -->
+  <script src="js/core/ui.js?v=0.1.0"></script>
+  <script src="js/core/registry.js?v=0.1.0"></script>
+  <script src="js/core/router.js?v=0.1.0"></script>
 
   <!-- Screens -->
-  <script src="./js/screens/dashboard.js?v=2026-02-16-01"></script>
-  <script src="./js/screens/mindset.js?v=2026-02-16-01"></script>
-  <script src="./js/screens/path.js?v=2026-02-16-01"></script>
-  <script src="./js/screens/maintenance.js?v=2026-02-16-01"></script>
-  <script src="./js/screens/finance.js?v=2026-02-16-01"></script>
-  <script src="./js/screens/vault.js?v=2026-02-16-01"></script>
+  <script src="js/screens/dashboard.js?v=0.1.0"></script>
+  <script src="js/screens/alignment.js?v=0.1.0"></script>
+  <script src="js/screens/maintenance.js?v=0.1.0"></script>
+  <script src="js/screens/path.js?v=0.1.0"></script>
+  <script src="js/screens/finance.js?v=0.1.0"></script>
+  <script src="js/screens/settings.js?v=0.1.0"></script>
+  <script src="js/screens/vault.js?v=0.1.0"></script>
 
   <!-- Boot LAST -->
-  <script src="./js/core/boot.js?v=2026-02-16-01"></script>
-
-  <!-- Bottom Nav binding (Router-driven) -->
-  <script>
-    (function () {
-      "use strict";
-      var TAB_SCREENS = { mindset: true, path: true, maintenance: true, finance: true };
-
-      function setActiveTab(screenName) {
-        try {
-          var btns = document.querySelectorAll(".nav-btn");
-          for (var i = 0; i < btns.length; i++) btns[i].classList.remove("active");
-          if (!TAB_SCREENS[screenName]) return;
-          var btn = document.querySelector('.nav-btn[data-target="' + screenName + '"]');
-          if (btn) btn.classList.add("active");
-        } catch (_) {}
-      }
-
-      function bindNav() {
-        try {
-          var btns = document.querySelectorAll(".nav-btn");
-          for (var i = 0; i < btns.length; i++) {
-            (function (btn) {
-              function handler(e) {
-                try {
-                  if (e && e.preventDefault) e.preventDefault();
-                  var target = btn.getAttribute("data-target");
-                  if (!target) return;
-                  setActiveTab(target);
-                  if (window.Router && typeof window.Router.go === "function") window.Router.go(target);
-                } catch (_) {}
-              }
-              btn.addEventListener("click", handler, { passive: false });
-              btn.addEventListener("touchend", handler, { passive: false });
-            })(btns[i]);
-          }
-        } catch (_) {}
-      }
-
-      function hookRouter() {
-        try {
-          if (!window.Router || typeof window.Router.go !== "function") return;
-          if (window.Router.__navHooked) return;
-          window.Router.__navHooked = true;
-          var originalGo = window.Router.go;
-          window.Router.go = function (screenName) {
-            try { setActiveTab(String(screenName || "")); } catch (_) {}
-            return originalGo.apply(window.Router, arguments);
-          };
-        } catch (_) {}
-      }
-
-      function bindNavSyncEvent() {
-        try {
-          window.addEventListener("personalos:navigated", function (ev) {
-            try {
-              var s = ev && ev.detail && ev.detail.screen ? String(ev.detail.screen) : "";
-              setActiveTab(s);
-            } catch (_) {}
-          });
-        } catch (_) {}
-      }
-
-      bindNav();
-      hookRouter();
-      bindNavSyncEvent();
-      setActiveTab("dashboard");
-    })();
-  </script>
+  <script src="js/core/boot.js?v=0.1.0"></script>
 </body>
 </html>
