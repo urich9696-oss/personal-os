@@ -135,11 +135,9 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         const cache = await caches.open(CACHE_NAME);
 
-        // Try exact request (with query) but ignoreSearch => hit
         const cached = await cache.match(req, { ignoreSearch: true });
         if (cached) return cached;
 
-        // Also try normalized shell URL
         const path = normalizePathname(url.pathname).replace(/^\/+/, "");
         const shellUrl = urlInScope(path);
         const cached2 = await cache.match(shellUrl, { ignoreSearch: true });
@@ -147,7 +145,6 @@ self.addEventListener("fetch", (event) => {
 
         try {
           const res = await fetch(req);
-          // Store under the original request URL (fine) and shellUrl (more robust)
           cache.put(req, res.clone());
           try { cache.put(shellUrl, res.clone()); } catch (_) {}
           return res;
