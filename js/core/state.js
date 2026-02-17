@@ -1,9 +1,11 @@
+// js/core/state.js
 (function () {
   "use strict";
 
   var State = {};
   var DB_NAME = "personalOS";
   var DB_VERSION = 99;
+  var APP_VERSION = "0.1.3";
 
   function nowISO() { return new Date().toISOString(); }
   function todayKey() { return UI.formatDateISO(new Date()); }
@@ -119,9 +121,9 @@
       if (!Array.isArray(s.finance.fixedItems)) s.finance.fixedItems = [];
       if (!s.finance.monthFlags) s.finance.monthFlags = {};
       if (!s.finance.reports) s.finance.reports = {};
-      if (!s.version) s.version = { db: DB_VERSION, app: "0.1.2" };
+      if (!s.version) s.version = { db: DB_VERSION, app: APP_VERSION };
       if (!s.version.db) s.version.db = DB_VERSION;
-      s.version.app = "0.1.2";
+      s.version.app = APP_VERSION;
       await DB.put("settings", s);
       return s;
     }
@@ -129,7 +131,7 @@
     var base = {
       key: "main",
       app: { name: "PERSONAL OS", slogan: "The Architecture of Excellence." },
-      version: { db: DB_VERSION, app: "0.1.2" },
+      version: { db: DB_VERSION, app: APP_VERSION },
       createdAt: nowISO(),
       updatedAt: nowISO(),
       debug: { enabled: false },
@@ -512,26 +514,98 @@
     return DB.get("vaultEntries", dayKey);
   }
 
-  // ---------- Calendar Blocks ----------
-  async function listBlocksByDate(dateISO) {
-    var q = DB.makeRangeOnly(dateISO);
-    var rows = await DB.getAllByIndex("calendarBlocks", "date", q);
-    rows.sort(function (a, b) { return String(a.start || "").localeCompare(String(b.start || "")); });
-    return rows;
+  // ---------- Calendar Blocks (Today’s Path) ----------
+  function normalizeBlockForRead(row) {
+    if (!row) return null;
+
+    var needsWrite = false;
+
+    if (row.startTime === undefined && row.start !== undefined) {
+      row.startTime = row.start;
+      needsWrite = true;
+    }
+    if (row.endTime === undefined && row.end !== undefined) {
+      row.endTime = row.end;
+      needsWrite = true;
+    }
+    if (row.title === undefined && row.title !== "" && row.title !== null) {
+      row.title = row.title || "";
+    }
+
+    if (row.note === undefined) { row.note = ""; needsWrite = true; }
+    if (row.type === undefined) { row.type = "block"; needsWrite = true; }
+
+    if (row.createdAt === undefined) { row.createdAt = nowISO(); needsWrite = true; }
+    if (row.updatedAt === undefined) { row.updatedAt = nowISO(); needsWrite = true; }
+
+    if (needsWrite && row.id !== undefined && row.id !== null) {
+      DB.put("calendarBlocks", row).catch(function () {});
+    }
+
+    return row;
   }
 
-  async function addBlock(block) {
-    if (!block || !block.date) throw new Error("addBlock: date missing");
-    var b = { date: block.date, start: block.start || "", end: block.end || "", title: block.title || "" };
+  function cmpBlocks(a, b) {
+    var sa = String(a.startTime || "");
+    var sb = String(b.startTime || "");
+    if (sa < sb) return -1;
+    if (sa > sb) return 1;
+    var ta = String(a.title || "");
+    var tb = String(b.title || "");
+    return ta.localeCompare(tb);
+  }
+
+  async function listBlocksByDate(dateKey) {
+    var q = DB.makeRangeOnly(dateKey);
+    var rows = await DB.getAllByIndex("calendarBlocks", "date", q);
+
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = normalizeBlockForRead(rows[i]);
+      if (r) out.push(r);
+    }
+    out.sort(cmpBlocks);
+    return out;
+  }
+
+  async function addBlock(payload) {
+    if (!payload || !payload.date) throw new Error("addBlock: date missing");
+
+    var p = payload || {};
+    var b = {
+      date: String(p.date),
+      title: (p.title || "").trim(),
+      startTime: (p.startTime || "").trim(),
+      endTime: (p.endTime || "").trim(),
+      note: (p.note || "").trim(),
+      type: (p.type || "block").trim() || "block",
+      createdAt: nowISO(),
+      updatedAt: nowISO()
+    };
+
     var id = await DB.add("calendarBlocks", b);
     b.id = id;
     return b;
   }
 
-  async function updateBlock(block) {
-    if (!block || !block.id) throw new Error("updateBlock: id missing");
-    await DB.put("calendarBlocks", block);
-    return block;
+  async function updateBlock(id, patch) {
+    if (id === undefined || id === null) throw new Error("updateBlock: id missing");
+    var existing = await DB.get("calendarBlocks", id);
+    if (!existing) throw new Error("updateBlock: block not found");
+
+    existing = normalizeBlockForRead(existing);
+
+    var p = patch || {};
+    if (p.date !== undefined) existing.date = String(p.date);
+    if (p.title !== undefined) existing.title = String(p.title || "").trim();
+    if (p.startTime !== undefined) existing.startTime = String(p.startTime || "").trim();
+    if (p.endTime !== undefined) existing.endTime = String(p.endTime || "").trim();
+    if (p.note !== undefined) existing.note = String(p.note || "").trim();
+    if (p.type !== undefined) existing.type = String(p.type || "").trim() || "block";
+
+    existing.updatedAt = nowISO();
+    await DB.put("calendarBlocks", existing);
+    return existing;
   }
 
   async function deleteBlock(id) {
@@ -541,8 +615,23 @@
   // ---------- Day Templates ----------
   async function listTemplates() { return DB.getAll("dayTemplates"); }
 
+  function normalizeTemplateBlock(tb) {
+    var b = tb || {};
+    var startTime = (b.startTime !== undefined) ? b.startTime : (b.start !== undefined ? b.start : "");
+    var endTime = (b.endTime !== undefined) ? b.endTime : (b.end !== undefined ? b.end : "");
+    return {
+      title: (b.title || "").trim(),
+      startTime: String(startTime || "").trim(),
+      endTime: String(endTime || "").trim(),
+      note: (b.note || "").trim(),
+      type: (b.type || "block").trim() || "block"
+    };
+  }
+
   async function createTemplate(name, blocksArray) {
-    var t = { name: name || "Template", blocks: Array.isArray(blocksArray) ? blocksArray : [] };
+    var arr = Array.isArray(blocksArray) ? blocksArray : [];
+    var normalized = arr.map(normalizeTemplateBlock);
+    var t = { name: name || "Template", blocks: normalized };
     var id = await DB.add("dayTemplates", t);
     t.id = id;
     return t;
@@ -550,6 +639,8 @@
 
   async function updateTemplate(template) {
     if (!template || !template.id) throw new Error("updateTemplate: id missing");
+    if (!Array.isArray(template.blocks)) template.blocks = [];
+    template.blocks = template.blocks.map(normalizeTemplateBlock);
     await DB.put("dayTemplates", template);
     return template;
   }
@@ -566,7 +657,15 @@
 
     var blocks = Array.isArray(t.blocks) ? t.blocks : [];
     for (var j = 0; j < blocks.length; j++) {
-      await addBlock({ date: dateISO, start: blocks[j].start || "", end: blocks[j].end || "", title: blocks[j].title || "" });
+      var nb = normalizeTemplateBlock(blocks[j]);
+      await addBlock({
+        date: dateISO,
+        title: nb.title,
+        startTime: nb.startTime,
+        endTime: nb.endTime,
+        note: nb.note,
+        type: nb.type
+      });
     }
     return true;
   }
