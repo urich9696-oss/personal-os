@@ -1,64 +1,91 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>PERSONAL OS</title>
-    <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
 </head>
 <body>
-
-    <header class="topbar">
-        <button onclick="app.navigate('dashboard')" class="dash-btn">
-            <span class="icon">◎</span> PERSONAL OS
-        </button>
-        <div id="status-indicator" class="online-dot"></div>
+    <header class="top-bar">
+        <h1 onclick="router.navigate('dashboard')">PERSONAL OS</h1>
+        <div id="status-clock" style="font-weight: 600;">00:00</div>
     </header>
 
-    <main id="app-shell">
-        <section id="view-dashboard" class="view active">
-            <h1 class="fade-in">The Architecture of Excellence.</h1>
-            <div class="card-grid">
-                <div class="card">
-                    <small>Next Block</small>
-                    <p id="dash-next-block">Keine Planung vorhanden</p>
-                </div>
-                <div class="card">
-                    <small>Budget Remaining</small>
-                    <p id="dash-budget">0.00 CHF</p>
-                </div>
+    <main id="view-container">
+        <section id="dashboard" class="view active">
+            <h2 style="font-size: 28px; margin-bottom: 5px;">Excellent Day</h2>
+            <p style="color: var(--text-sub); margin-bottom: 30px;">Architecture of Excellence</p>
+            <div id="dashboard-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 30px;">
+                <div class="glass" style="padding: 20px; border-radius: 24px;"><small>PERFORMANCE</small><div style="font-size: 22px; font-weight: 600;">0%</div></div>
+                <div class="glass" style="padding: 20px; border-radius: 24px;"><small>NEXT PATH</small><div style="font-size: 14px; font-weight: 600;">None</div></div>
+                <div class="glass" style="padding: 20px; border-radius: 24px;"><small>BUDGET</small><div style="font-size: 22px; font-weight: 600;">€0.00</div></div>
+                <div class="glass" style="padding: 20px; border-radius: 24px;"><small>GATEKEEPER</small><div style="font-size: 22px; font-weight: 600;">Clear</div></div>
             </div>
-            <div class="quick-actions">
-                <button class="action-btn">+ Block</button>
-                <button class="action-btn">+ Transaction</button>
-            </div>
+            <button class="primary-trigger" onclick="router.navigate('alignment')">START JOURNAL</button>
         </section>
 
-        <section id="view-alignment" class="view"><h1>Alignment</h1></section>
-        <section id="view-maintenance" class="view"><h1>Maintenance</h1></section>
-        <section id="view-path" class="view"><h1>Today's Path</h1></section>
-        <section id="view-finance" class="view"><h1>Finance</h1></section>
-        <section id="view-settings" class="view"><h1>Settings</h1></section>
+        <section id="alignment" class="view">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2>Alignment</h2>
+                <button onclick="alignmentUI.toggleVault()" class="glass" style="padding:5px 10px; border-radius:10px; font-size:10px;">VAULT</button>
+            </div>
+            <div id="alignment-main">
+                <div class="glass" style="padding:20px; border-radius:20px; margin-bottom:15px;" onclick="alignmentUI.startFlow('morning')">☼ Morning Flow</div>
+                <div class="glass" style="padding:20px; border-radius:20px;" onclick="alignmentUI.startFlow('evening')">☾ Evening Flow</div>
+            </div>
+            <div id="vault-list" style="display:none;"></div>
+        </section>
+
+        <section id="maintenance" class="view">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2>Operations</h2>
+                <button onclick="maintenanceUI.showAddModal()" style="background:black; color:white; border-radius:50%; width:30px; height:30px; border:none;">+</button>
+            </div>
+            <div id="habit-list"></div>
+        </section>
+
+        <section id="path" class="view">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2>Today's Path</h2>
+                <button onclick="pathUI.showAddModal()" style="background:black; color:white; border-radius:50%; width:30px; height:30px; border:none;">+</button>
+            </div>
+            <div id="path-timeline"></div>
+        </section>
+
+        <section id="finance" class="view">
+            <h2>Finance Guard</h2>
+            <div class="glass" style="padding:20px; border-radius:24px; margin-bottom:20px;">
+                <small>MONTHLY SPENT</small>
+                <div id="total-spent" style="font-size:28px; font-weight:600;">€ 0.00</div>
+            </div>
+            <div id="gatekeeper-list"></div>
+            <button class="primary-trigger" style="margin-top:20px;" onclick="financeUI.showAddModal()">LOG TRANSACTION</button>
+        </section>
+
+        <section id="settings" class="view">
+            <h2>Settings</h2>
+            <button onclick="systemOS.exportData()" class="glass" style="width:100%; padding:15px; border-radius:12px; margin-bottom:10px;">EXPORT JSON</button>
+            <button onclick="systemOS.factoryReset()" style="width:100%; padding:15px; border-radius:12px; background:#FF3B30; color:white; border:none;">FACTORY RESET</button>
+        </section>
     </main>
 
-    <nav class="bottom-nav">
-        <button onclick="app.navigate('alignment')"><span>◈</span><label>Align</label></button>
-        <button onclick="app.navigate('maintenance')"><span>⚙</span><label>Maint</label></button>
-        <button onclick="app.navigate('path')"><span>◗</span><label>Path</label></button>
-        <button onclick="app.navigate('finance')"><span>₣</span><label>Fin</label></button>
-        <button onclick="app.navigate('settings')"><span>▤</span><label>Set</label></button>
+    <div id="global-modal" class="glass" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:2000; padding:40px 20px; overflow-y:auto;">
+        <div id="modal-body"></div>
+        <button onclick="document.getElementById('global-modal').style.display='none'" class="glass" style="width:100%; padding:15px; margin-top:20px;">CLOSE</button>
+    </div>
+
+    <nav class="bottom-nav glass">
+        <a href="#" class="nav-item active" onclick="router.navigate('dashboard', this)"><span class="nav-icon">◈</span><span>DASH</span></a>
+        <a href="#" class="nav-item" onclick="router.navigate('alignment', this)"><span class="nav-icon">◎</span><span>ALIGN</span></a>
+        <a href="#" class="nav-item" onclick="router.navigate('path', this)"><span class="nav-icon">⚲</span><span>PATH</span></a>
+        <a href="#" class="nav-item" onclick="router.navigate('finance', this)"><span class="nav-icon">⌬</span><span>FIN</span></a>
+        <a href="#" class="nav-item" onclick="router.navigate('settings', this)"><span class="nav-icon">⚙</span><span>SET</span></a>
     </nav>
 
-    <script src="db.js"></script>
-    <script src="app.js"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js');
-        }
-    </script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>
