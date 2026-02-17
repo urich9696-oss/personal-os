@@ -26,6 +26,7 @@
     return "id_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
   }
 
+  // -------------------- DB UPGRADE --------------------
   function upgrade(db, tx) {
     if (!db.objectStoreNames.contains("settings")) {
       db.createObjectStore("settings", { keyPath: "key" });
@@ -112,7 +113,7 @@
     return true;
   }
 
-  // ---------- Defaults ----------
+  // -------------------- DEFAULTS --------------------
   async function ensureMainSettings() {
     var s = await DB.get("settings", "main");
     if (s) {
@@ -184,7 +185,7 @@
     return true;
   }
 
-  // ---------- Settings ----------
+  // -------------------- SETTINGS --------------------
   async function getSettings() { return DB.get("settings", "main"); }
 
   async function updateSettings(patch) {
@@ -198,7 +199,7 @@
     return s;
   }
 
-  // ---------- Finance Month Logic ----------
+  // -------------------- FINANCE MONTH LOGIC --------------------
   function isFirstDay() {
     try { return new Date().getDate() === 1; } catch (e) { return false; }
   }
@@ -449,7 +450,7 @@
     return months.map(function (m) { return rep[m]; });
   }
 
-  // ---------- Journal ----------
+  // -------------------- JOURNAL --------------------
   async function getJournal(date) {
     var d = date || todayKey();
     var j = await DB.get("journalEntries", d);
@@ -491,7 +492,7 @@
     return j;
   }
 
-  // ---------- Vault ----------
+  // -------------------- VAULT --------------------
   async function snapshotToVault(dayKey) {
     var d = dayKey || todayKey();
     var j = await DB.get("journalEntries", d);
@@ -514,12 +515,13 @@
     return DB.get("vaultEntries", dayKey);
   }
 
-  // ---------- Calendar Blocks (Today’s Path) ----------
+  // -------------------- CALENDAR BLOCKS (COMPAT) --------------------
   function normalizeBlockForRead(row) {
     if (!row) return null;
 
     var needsWrite = false;
 
+    // Backward compat: start/end -> startTime/endTime
     if (row.startTime === undefined && row.start !== undefined) {
       row.startTime = row.start;
       needsWrite = true;
@@ -528,15 +530,28 @@
       row.endTime = row.end;
       needsWrite = true;
     }
-    if (row.title === undefined && row.title !== "" && row.title !== null) {
-      row.title = row.title || "";
+
+    // Forward compat for UI: expose start/end expected by screens
+    if (row.start === undefined && row.startTime !== undefined) {
+      row.start = row.startTime;
+      needsWrite = true;
+    }
+    if (row.end === undefined && row.endTime !== undefined) {
+      row.end = row.endTime;
+      needsWrite = true;
     }
 
-    if (row.note === undefined) { row.note = ""; needsWrite = true; }
-    if (row.type === undefined) { row.type = "block"; needsWrite = true; }
+    // Fix broken logic: title should always exist as string
+    if (row.title === undefined || row.title === null) {
+      row.title = "";
+      needsWrite = true;
+    }
 
-    if (row.createdAt === undefined) { row.createdAt = nowISO(); needsWrite = true; }
-    if (row.updatedAt === undefined) { row.updatedAt = nowISO(); needsWrite = true; }
+    if (row.note === undefined || row.note === null) { row.note = ""; needsWrite = true; }
+    if (row.type === undefined || row.type === null) { row.type = "block"; needsWrite = true; }
+
+    if (row.createdAt === undefined || row.createdAt === null) { row.createdAt = nowISO(); needsWrite = true; }
+    if (row.updatedAt === undefined || row.updatedAt === null) { row.updatedAt = nowISO(); needsWrite = true; }
 
     if (needsWrite && row.id !== undefined && row.id !== null) {
       DB.put("calendarBlocks", row).catch(function () {});
@@ -546,8 +561,9 @@
   }
 
   function cmpBlocks(a, b) {
-    var sa = String(a.startTime || "");
-    var sb = String(b.startTime || "");
+    // Screens assume "start" exists; we ensure it above
+    var sa = String(a.start || a.startTime || "");
+    var sb = String(b.start || b.startTime || "");
     if (sa < sb) return -1;
     if (sa > sb) return 1;
     var ta = String(a.title || "");
@@ -568,15 +584,28 @@
     return out;
   }
 
+  function coerceBlockTime(value) {
+    if (value === null || value === undefined) return "";
+    return String(value).trim();
+  }
+
   async function addBlock(payload) {
     if (!payload || !payload.date) throw new Error("addBlock: date missing");
 
     var p = payload || {};
+
+    // Accept both {start,end} and {startTime,endTime}
+    var startTime = (p.startTime !== undefined) ? p.startTime : p.start;
+    var endTime = (p.endTime !== undefined) ? p.endTime : p.end;
+
     var b = {
       date: String(p.date),
       title: (p.title || "").trim(),
-      startTime: (p.startTime || "").trim(),
-      endTime: (p.endTime || "").trim(),
+      startTime: coerceBlockTime(startTime),
+      endTime: coerceBlockTime(endTime),
+      // also store start/end for screens (kept in sync)
+      start: coerceBlockTime(startTime),
+      end: coerceBlockTime(endTime),
       note: (p.note || "").trim(),
       type: (p.type || "block").trim() || "block",
       createdAt: nowISO(),
@@ -585,34 +614,61 @@
 
     var id = await DB.add("calendarBlocks", b);
     b.id = id;
-    return b;
+    return normalizeBlockForRead(b);
   }
 
-  async function updateBlock(id, patch) {
+  // Overload:
+  // - updateBlock(id, patch)
+  // - updateBlock(blockObj)  <-- what your screens currently do
+  async function updateBlock(arg1, arg2) {
+    var id, patch;
+
+    if (typeof arg1 === "object" && arg1 && arg1.id !== undefined && arg1.id !== null) {
+      id = arg1.id;
+      patch = arg1; // treat whole object as patch
+    } else {
+      id = arg1;
+      patch = arg2 || {};
+    }
+
     if (id === undefined || id === null) throw new Error("updateBlock: id missing");
+
     var existing = await DB.get("calendarBlocks", id);
     if (!existing) throw new Error("updateBlock: block not found");
 
     existing = normalizeBlockForRead(existing);
 
     var p = patch || {};
+
     if (p.date !== undefined) existing.date = String(p.date);
+
     if (p.title !== undefined) existing.title = String(p.title || "").trim();
-    if (p.startTime !== undefined) existing.startTime = String(p.startTime || "").trim();
-    if (p.endTime !== undefined) existing.endTime = String(p.endTime || "").trim();
+
+    // Accept both start/startTime and end/endTime
+    if (p.startTime !== undefined || p.start !== undefined) {
+      var st = (p.startTime !== undefined) ? p.startTime : p.start;
+      existing.startTime = coerceBlockTime(st);
+      existing.start = coerceBlockTime(st);
+    }
+    if (p.endTime !== undefined || p.end !== undefined) {
+      var et = (p.endTime !== undefined) ? p.endTime : p.end;
+      existing.endTime = coerceBlockTime(et);
+      existing.end = coerceBlockTime(et);
+    }
+
     if (p.note !== undefined) existing.note = String(p.note || "").trim();
     if (p.type !== undefined) existing.type = String(p.type || "").trim() || "block";
 
     existing.updatedAt = nowISO();
     await DB.put("calendarBlocks", existing);
-    return existing;
+    return normalizeBlockForRead(existing);
   }
 
   async function deleteBlock(id) {
     return DB.del("calendarBlocks", id);
   }
 
-  // ---------- Day Templates ----------
+  // -------------------- DAY TEMPLATES --------------------
   async function listTemplates() { return DB.getAll("dayTemplates"); }
 
   function normalizeTemplateBlock(tb) {
@@ -670,7 +726,7 @@
     return true;
   }
 
-  // ---------- Finance Categories ----------
+  // -------------------- FINANCE CATEGORIES --------------------
   async function listFinanceCategories(type) {
     var all = await DB.getAll("financeCategories");
     if (type) all = all.filter(function (c) { return c.type === type; });
@@ -704,7 +760,7 @@
     return DB.del("financeCategories", id);
   }
 
-  // ---------- Finance Transactions ----------
+  // -------------------- FINANCE TRANSACTIONS --------------------
   async function listTransactionsByMonth(month) {
     var m = month || currentMonthKey();
     var q = DB.makeRangeOnly(m);
@@ -740,466 +796,7 @@
 
   async function deleteTransaction(id) { return DB.del("financeTransactions", id); }
 
-  // ---------- Gatekeeper ----------
+  // -------------------- GATEKEEPER --------------------
   async function addGatekeeper(item) {
     var createdAt = item.createdAt || nowISO();
-    var unlockAt = item.unlockAt || new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
-    var g = {
-      name: item.name || "Gatekeeper Item",
-      price: typeof item.price === "number" ? item.price : Number(item.price || 0),
-      categoryId: item.categoryId || null,
-      createdAt: createdAt,
-      unlockAt: unlockAt,
-      status: item.status || "locked",
-      purchasedAt: item.purchasedAt || null
-    };
-    var id = await DB.add("gatekeeperItems", g);
-    g.id = id;
-    return g;
-  }
-
-  async function listGatekeepers(status) {
-    var all = await DB.getAll("gatekeeperItems");
-    if (status) all = all.filter(function (g) { return g.status === status; });
-    all.sort(function (a, b) { return String(b.createdAt || "").localeCompare(String(a.createdAt || "")); });
-    return all;
-  }
-
-  async function updateGatekeeper(item) {
-    if (!item || !item.id) throw new Error("updateGatekeeper: id missing");
-    await DB.put("gatekeeperItems", item);
-    return item;
-  }
-
-  async function markGatekeeperPurchased(id, purchaseDateISO) {
-    var all = await DB.getAll("gatekeeperItems");
-    var g = null;
-    for (var i = 0; i < all.length; i++) {
-      if (all[i].id === id) { g = all[i]; break; }
-    }
-    if (!g) throw new Error("markGatekeeperPurchased: not found");
-
-    g.status = "purchased";
-    g.purchasedAt = purchaseDateISO || nowISO();
-    await DB.put("gatekeeperItems", g);
-
-    await addTransaction({
-      date: todayKey(),
-      type: "expense",
-      categoryId: g.categoryId || null,
-      name: "Gatekeeper: " + (g.name || ""),
-      amount: safeNum(g.price || 0),
-      fixed: false
-    });
-
-    return g;
-  }
-
-  // ---------- Maintenance (Business API) ----------
-  async function getEssentialsDoc() {
-    var d = await DB.get("maintenanceEssentials", "main");
-    if (!d) {
-      d = { key: "main", categories: [] };
-      await DB.put("maintenanceEssentials", d);
-    }
-    if (!Array.isArray(d.categories)) d.categories = [];
-    return d;
-  }
-
-  async function saveEssentialsDoc(doc) {
-    if (!doc || doc.key !== "main") throw new Error("saveEssentials: key main required");
-    if (!Array.isArray(doc.categories)) doc.categories = [];
-    await DB.put("maintenanceEssentials", doc);
-    return doc;
-  }
-
-  async function essentialsListCategories() {
-    var d = await getEssentialsDoc();
-    return d.categories.slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || "")); });
-  }
-
-  async function essentialsAddCategory(name) {
-    var d = await getEssentialsDoc();
-    var c = { id: uid(), name: (name || "Category").trim() || "Category", items: [], createdAt: nowISO() };
-    d.categories.push(c);
-    await saveEssentialsDoc(d);
-    return c;
-  }
-
-  async function essentialsRenameCategory(categoryId, newName) {
-    var d = await getEssentialsDoc();
-    for (var i = 0; i < d.categories.length; i++) {
-      if (d.categories[i].id === categoryId) {
-        d.categories[i].name = (newName || "").trim() || d.categories[i].name;
-        d.categories[i].updatedAt = nowISO();
-        break;
-      }
-    }
-    await saveEssentialsDoc(d);
-    return true;
-  }
-
-  async function essentialsDeleteCategory(categoryId) {
-    var d = await getEssentialsDoc();
-    d.categories = d.categories.filter(function (x) { return x.id !== categoryId; });
-    await saveEssentialsDoc(d);
-    return true;
-  }
-
-  async function essentialsAddItem(categoryId, item) {
-    var d = await getEssentialsDoc();
-    var target = null;
-    for (var i = 0; i < d.categories.length; i++) {
-      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
-    }
-    if (!target) throw new Error("essentialsAddItem: category not found");
-
-    var it = {
-      id: uid(),
-      name: (item.name || "Item").trim() || "Item",
-      price: safeNum(item.price),
-      frequency: (item.frequency || "").trim(),
-      usage: (item.usage || "").trim(),
-      imageDataUrl: item.imageDataUrl || null,
-      createdAt: nowISO()
-    };
-    if (!Array.isArray(target.items)) target.items = [];
-    target.items.push(it);
-    target.updatedAt = nowISO();
-    await saveEssentialsDoc(d);
-    return it;
-  }
-
-  async function essentialsUpdateItem(categoryId, item) {
-    if (!item || !item.id) throw new Error("essentialsUpdateItem: item.id missing");
-    var d = await getEssentialsDoc();
-    var target = null;
-    for (var i = 0; i < d.categories.length; i++) {
-      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
-    }
-    if (!target) throw new Error("essentialsUpdateItem: category not found");
-    if (!Array.isArray(target.items)) target.items = [];
-
-    for (var j = 0; j < target.items.length; j++) {
-      if (target.items[j].id === item.id) {
-        target.items[j].name = (item.name || "").trim() || target.items[j].name;
-        target.items[j].price = safeNum(item.price);
-        target.items[j].frequency = (item.frequency || "").trim();
-        target.items[j].usage = (item.usage || "").trim();
-        if (item.imageDataUrl !== undefined) target.items[j].imageDataUrl = item.imageDataUrl;
-        target.items[j].updatedAt = nowISO();
-        break;
-      }
-    }
-    target.updatedAt = nowISO();
-    await saveEssentialsDoc(d);
-    return true;
-  }
-
-  async function essentialsDeleteItem(categoryId, itemId) {
-    var d = await getEssentialsDoc();
-    var target = null;
-    for (var i = 0; i < d.categories.length; i++) {
-      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
-    }
-    if (!target) throw new Error("essentialsDeleteItem: category not found");
-    if (!Array.isArray(target.items)) target.items = [];
-
-    target.items = target.items.filter(function (x) { return x.id !== itemId; });
-    target.updatedAt = nowISO();
-    await saveEssentialsDoc(d);
-    return true;
-  }
-
-  async function getRoutinesDoc() {
-    var d = await DB.get("maintenanceRoutines", "main");
-    if (!d) {
-      d = { key: "main", categories: [] };
-      await DB.put("maintenanceRoutines", d);
-    }
-    if (!Array.isArray(d.categories)) d.categories = [];
-    return d;
-  }
-
-  async function saveRoutinesDoc(doc) {
-    if (!doc || doc.key !== "main") throw new Error("saveRoutines: key main required");
-    if (!Array.isArray(doc.categories)) doc.categories = [];
-    await DB.put("maintenanceRoutines", doc);
-    return doc;
-  }
-
-  async function routinesListCategories() {
-    var d = await getRoutinesDoc();
-    return d.categories.slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || "")); });
-  }
-
-  async function routinesAddCategory(name) {
-    var d = await getRoutinesDoc();
-    var c = { id: uid(), name: (name || "Category").trim() || "Category", checklists: [], createdAt: nowISO() };
-    d.categories.push(c);
-    await saveRoutinesDoc(d);
-    return c;
-  }
-
-  async function routinesRenameCategory(categoryId, newName) {
-    var d = await getRoutinesDoc();
-    for (var i = 0; i < d.categories.length; i++) {
-      if (d.categories[i].id === categoryId) {
-        d.categories[i].name = (newName || "").trim() || d.categories[i].name;
-        d.categories[i].updatedAt = nowISO();
-        break;
-      }
-    }
-    await saveRoutinesDoc(d);
-    return true;
-  }
-
-  async function routinesDeleteCategory(categoryId) {
-    var d = await getRoutinesDoc();
-    d.categories = d.categories.filter(function (x) { return x.id !== categoryId; });
-    await saveRoutinesDoc(d);
-    return true;
-  }
-
-  async function routinesAddChecklist(categoryId, name) {
-    var d = await getRoutinesDoc();
-    var c = null;
-    for (var i = 0; i < d.categories.length; i++) {
-      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
-    }
-    if (!c) throw new Error("routinesAddChecklist: category not found");
-    if (!Array.isArray(c.checklists)) c.checklists = [];
-
-    var cl = { id: uid(), name: (name || "Checklist").trim() || "Checklist", items: [], createdAt: nowISO() };
-    c.checklists.push(cl);
-    c.updatedAt = nowISO();
-    await saveRoutinesDoc(d);
-    return cl;
-  }
-
-  async function routinesRenameChecklist(categoryId, checklistId, newName) {
-    var d = await getRoutinesDoc();
-    var c = null;
-    for (var i = 0; i < d.categories.length; i++) {
-      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
-    }
-    if (!c) throw new Error("routinesRenameChecklist: category not found");
-    if (!Array.isArray(c.checklists)) c.checklists = [];
-
-    for (var j = 0; j < c.checklists.length; j++) {
-      if (c.checklists[j].id === checklistId) {
-        c.checklists[j].name = (newName || "").trim() || c.checklists[j].name;
-        c.checklists[j].updatedAt = nowISO();
-        break;
-      }
-    }
-    c.updatedAt = nowISO();
-    await saveRoutinesDoc(d);
-    return true;
-  }
-
-  async function routinesDeleteChecklist(categoryId, checklistId) {
-    var d = await getRoutinesDoc();
-    var c = null;
-    for (var i = 0; i < d.categories.length; i++) {
-      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
-    }
-    if (!c) throw new Error("routinesDeleteChecklist: category not found");
-    if (!Array.isArray(c.checklists)) c.checklists = [];
-
-    c.checklists = c.checklists.filter(function (x) { return x.id !== checklistId; });
-    c.updatedAt = nowISO();
-    await saveRoutinesDoc(d);
-    return true;
-  }
-
-  async function routinesAddChecklistItem(categoryId, checklistId, text) {
-    var d = await getRoutinesDoc();
-    var c = null, cl = null;
-    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
-    if (!c) throw new Error("routinesAddChecklistItem: category not found");
-    if (!Array.isArray(c.checklists)) c.checklists = [];
-    for (var j = 0; j < c.checklists.length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
-    if (!cl) throw new Error("routinesAddChecklistItem: checklist not found");
-    if (!Array.isArray(cl.items)) cl.items = [];
-
-    var it = { id: uid(), text: (text || "Item").trim() || "Item", done: false, createdAt: nowISO() };
-    cl.items.push(it);
-    cl.updatedAt = nowISO();
-    c.updatedAt = nowISO();
-    await saveRoutinesDoc(d);
-    return it;
-  }
-
-  async function routinesToggleChecklistItem(categoryId, checklistId, itemId) {
-    var d = await getRoutinesDoc();
-    var c = null, cl = null;
-    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
-    if (!c) throw new Error("routinesToggleChecklistItem: category not found");
-    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
-    if (!cl) throw new Error("routinesToggleChecklistItem: checklist not found");
-
-    for (var k = 0; k < (cl.items || []).length; k++) {
-      if (cl.items[k].id === itemId) {
-        cl.items[k].done = !cl.items[k].done;
-        cl.items[k].updatedAt = nowISO();
-        break;
-      }
-    }
-    cl.updatedAt = nowISO();
-    c.updatedAt = nowISO();
-    await saveRoutinesDoc(d);
-    return true;
-  }
-
-  async function routinesDeleteChecklistItem(categoryId, checklistId, itemId) {
-    var d = await getRoutinesDoc();
-    var c = null, cl = null;
-    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
-    if (!c) throw new Error("routinesDeleteChecklistItem: category not found");
-    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
-    if (!cl) throw new Error("routinesDeleteChecklistItem: checklist not found");
-
-    cl.items = (cl.items || []).filter(function (x) { return x.id !== itemId; });
-    cl.updatedAt = nowISO();
-    c.updatedAt = nowISO();
-    await saveRoutinesDoc(d);
-    return true;
-  }
-
-  async function routinesResetChecklist(categoryId, checklistId) {
-    var d = await getRoutinesDoc();
-    var c = null, cl = null;
-    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
-    if (!c) throw new Error("routinesResetChecklist: category not found");
-    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
-    if (!cl) throw new Error("routinesResetChecklist: checklist not found");
-
-    for (var k = 0; k < (cl.items || []).length; k++) {
-      cl.items[k].done = false;
-      cl.items[k].updatedAt = nowISO();
-    }
-    cl.updatedAt = nowISO();
-    c.updatedAt = nowISO();
-    await saveRoutinesDoc(d);
-    return true;
-  }
-
-  // ---------- Backup / Reset ----------
-  async function exportBackup() {
-    var stores = [
-      "settings",
-      "journalEntries",
-      "calendarBlocks",
-      "dayTemplates",
-      "financeCategories",
-      "financeTransactions",
-      "gatekeeperItems",
-      "vaultEntries",
-      "maintenanceEssentials",
-      "maintenanceRoutines"
-    ];
-    var out = { meta: { exportedAt: nowISO(), dbName: DB_NAME, dbVersion: DB_VERSION }, data: {} };
-    for (var i = 0; i < stores.length; i++) out.data[stores[i]] = await DB.getAll(stores[i]);
-    return out;
-  }
-
-  async function hardReset() { await DB.destroyDatabase(DB_NAME); return true; }
-
-  async function softResetTodayOnly() {
-    var dk = todayKey();
-    await DB.del("journalEntries", dk);
-
-    var blocks = await listBlocksByDate(dk);
-    for (var i = 0; i < blocks.length; i++) await deleteBlock(blocks[i].id);
-
-    await DB.del("vaultEntries", dk);
-    await ensureTodayState();
-    return true;
-  }
-
-  // ---------- Public API ----------
-  State.init = init;
-  State.ensureTodayState = ensureTodayState;
-
-  State.getSettings = getSettings;
-  State.updateSettings = updateSettings;
-
-  State.financeEnsureMonth = financeEnsureMonth;
-  State.financeDismissReminder = financeDismissReminder;
-  State.financeCloseMonth = financeCloseMonth;
-
-  State.financeListFixedItems = financeListFixedItems;
-  State.financeAddFixedItem = financeAddFixedItem;
-  State.financeUpdateFixedItem = financeUpdateFixedItem;
-  State.financeDeleteFixedItem = financeDeleteFixedItem;
-  State.financeApplyFixedForMonth = financeApplyFixedForMonth;
-
-  State.financeBuildReport = financeBuildReport;
-  State.financeSaveReport = financeSaveReport;
-  State.financeGetReport = financeGetReport;
-  State.financeListReports = financeListReports;
-
-  State.getJournal = getJournal;
-  State.saveJournal = saveJournal;
-  State.setMorningTodos = setMorningTodos;
-  State.completeEvening = completeEvening;
-
-  State.snapshotToVault = snapshotToVault;
-  State.listVault = listVault;
-  State.getVaultSnapshot = getVaultSnapshot;
-
-  State.listBlocksByDate = listBlocksByDate;
-  State.addBlock = addBlock;
-  State.updateBlock = updateBlock;
-  State.deleteBlock = deleteBlock;
-
-  State.listTemplates = listTemplates;
-  State.createTemplate = createTemplate;
-  State.updateTemplate = updateTemplate;
-  State.deleteTemplate = deleteTemplate;
-  State.applyTemplateToDate = applyTemplateToDate;
-
-  State.listFinanceCategories = listFinanceCategories;
-  State.getFinanceCategory = getFinanceCategory;
-  State.addFinanceCategory = addFinanceCategory;
-  State.updateFinanceCategory = updateFinanceCategory;
-  State.deleteFinanceCategory = deleteFinanceCategory;
-
-  State.listTransactionsByMonth = listTransactionsByMonth;
-  State.addTransaction = addTransaction;
-  State.updateTransaction = updateTransaction;
-  State.deleteTransaction = deleteTransaction;
-
-  State.addGatekeeper = addGatekeeper;
-  State.listGatekeepers = listGatekeepers;
-  State.updateGatekeeper = updateGatekeeper;
-  State.markGatekeeperPurchased = markGatekeeperPurchased;
-
-  // Maintenance API
-  State.essentialsListCategories = essentialsListCategories;
-  State.essentialsAddCategory = essentialsAddCategory;
-  State.essentialsRenameCategory = essentialsRenameCategory;
-  State.essentialsDeleteCategory = essentialsDeleteCategory;
-  State.essentialsAddItem = essentialsAddItem;
-  State.essentialsUpdateItem = essentialsUpdateItem;
-  State.essentialsDeleteItem = essentialsDeleteItem;
-
-  State.routinesListCategories = routinesListCategories;
-  State.routinesAddCategory = routinesAddCategory;
-  State.routinesRenameCategory = routinesRenameCategory;
-  State.routinesDeleteCategory = routinesDeleteCategory;
-  State.routinesAddChecklist = routinesAddChecklist;
-  State.routinesRenameChecklist = routinesRenameChecklist;
-  State.routinesDeleteChecklist = routinesDeleteChecklist;
-  State.routinesAddChecklistItem = routinesAddChecklistItem;
-  State.routinesToggleChecklistItem = routinesToggleChecklistItem;
-  State.routinesDeleteChecklistItem = routinesDeleteChecklistItem;
-  State.routinesResetChecklist = routinesResetChecklist;
-
-  State.exportBackup = exportBackup;
-  State.hardReset = hardReset;
-  State.softResetTodayOnly = softResetTodayOnly;
-
-  window.State = State;
-})();
+    var unlockAt = item.unlockAt |
