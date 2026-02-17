@@ -799,4 +799,505 @@
   // -------------------- GATEKEEPER --------------------
   async function addGatekeeper(item) {
     var createdAt = item.createdAt || nowISO();
-    var unlockAt = item.unlockAt |
+    var unlockAt = item.unlockAt || new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    var g = {
+      name: item.name || "Gatekeeper Item",
+      price: typeof item.price === "number" ? item.price : Number(item.price || 0),
+      categoryId: item.categoryId || null,
+      createdAt: createdAt,
+      unlockAt: unlockAt,
+      status: item.status || "locked",
+      purchasedAt: item.purchasedAt || null
+    };
+    var id = await DB.add("gatekeeperItems", g);
+    g.id = id;
+    return g;
+  }
+
+  async function listGatekeepers(status) {
+    var all = await DB.getAll("gatekeeperItems");
+    if (status) all = all.filter(function (g) { return g.status === status; });
+    all.sort(function (a, b) { return String(b.createdAt || "").localeCompare(String(a.createdAt || "")); });
+    return all;
+  }
+
+  async function updateGatekeeper(item) {
+    if (!item || !item.id) throw new Error("updateGatekeeper: id missing");
+    await DB.put("gatekeeperItems", item);
+    return item;
+  }
+
+  async function markGatekeeperPurchased(id, purchaseDateISO) {
+    var all = await DB.getAll("gatekeeperItems");
+    var g = null;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].id === id) { g = all[i]; break; }
+    }
+    if (!g) throw new Error("markGatekeeperPurchased: not found");
+
+    g.status = "purchased";
+    g.purchasedAt = purchaseDateISO || nowISO();
+    await DB.put("gatekeeperItems", g);
+
+    await addTransaction({
+      date: todayKey(),
+      type: "expense",
+      categoryId: g.categoryId || null,
+      name: "Gatekeeper: " + (g.name || ""),
+      amount: safeNum(g.price || 0),
+      fixed: false
+    });
+
+    return g;
+  }
+
+  // -------------------- MAINTENANCE DOCS (unchanged) --------------------
+  async function getEssentialsDoc() {
+    var d = await DB.get("maintenanceEssentials", "main");
+    if (!d) {
+      d = { key: "main", categories: [] };
+      await DB.put("maintenanceEssentials", d);
+    }
+    if (!Array.isArray(d.categories)) d.categories = [];
+    return d;
+  }
+
+  async function saveEssentialsDoc(doc) {
+    if (!doc || doc.key !== "main") throw new Error("saveEssentials: key main required");
+    if (!Array.isArray(doc.categories)) doc.categories = [];
+    await DB.put("maintenanceEssentials", doc);
+    return doc;
+  }
+
+  async function essentialsListCategories() {
+    var d = await getEssentialsDoc();
+    return d.categories.slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || "")); });
+  }
+
+  async function essentialsAddCategory(name) {
+    var d = await getEssentialsDoc();
+    var c = { id: uid(), name: (name || "Category").trim() || "Category", items: [], createdAt: nowISO() };
+    d.categories.push(c);
+    await saveEssentialsDoc(d);
+    return c;
+  }
+
+  async function essentialsRenameCategory(categoryId, newName) {
+    var d = await getEssentialsDoc();
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) {
+        d.categories[i].name = (newName || "").trim() || d.categories[i].name;
+        d.categories[i].updatedAt = nowISO();
+        break;
+      }
+    }
+    await saveEssentialsDoc(d);
+    return true;
+  }
+
+  async function essentialsDeleteCategory(categoryId) {
+    var d = await getEssentialsDoc();
+    d.categories = d.categories.filter(function (x) { return x.id !== categoryId; });
+    await saveEssentialsDoc(d);
+    return true;
+  }
+
+  async function essentialsAddItem(categoryId, item) {
+    var d = await getEssentialsDoc();
+    var target = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
+    }
+    if (!target) throw new Error("essentialsAddItem: category not found");
+
+    var it = {
+      id: uid(),
+      name: (item.name || "Item").trim() || "Item",
+      price: safeNum(item.price),
+      frequency: (item.frequency || "").trim(),
+      usage: (item.usage || "").trim(),
+      imageDataUrl: item.imageDataUrl || null,
+      createdAt: nowISO()
+    };
+    if (!Array.isArray(target.items)) target.items = [];
+    target.items.push(it);
+    target.updatedAt = nowISO();
+    await saveEssentialsDoc(d);
+    return it;
+  }
+
+  async function essentialsUpdateItem(categoryId, item) {
+    if (!item || !item.id) throw new Error("essentialsUpdateItem: item.id missing");
+    var d = await getEssentialsDoc();
+    var target = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
+    }
+    if (!target) throw new Error("essentialsUpdateItem: category not found");
+    if (!Array.isArray(target.items)) target.items = [];
+
+    for (var j = 0; j < target.items.length; j++) {
+      if (target.items[j].id === item.id) {
+        target.items[j].name = (item.name || "").trim() || target.items[j].name;
+        target.items[j].price = safeNum(item.price);
+        target.items[j].frequency = (item.frequency || "").trim();
+        target.items[j].usage = (item.usage || "").trim();
+        if (item.imageDataUrl !== undefined) target.items[j].imageDataUrl = item.imageDataUrl;
+        target.items[j].updatedAt = nowISO();
+        break;
+      }
+    }
+    target.updatedAt = nowISO();
+    await saveEssentialsDoc(d);
+    return true;
+  }
+
+  async function essentialsDeleteItem(categoryId, itemId) {
+    var d = await getEssentialsDoc();
+    var target = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { target = d.categories[i]; break; }
+    }
+    if (!target) throw new Error("essentialsDeleteItem: category not found");
+    if (!Array.isArray(target.items)) target.items = [];
+
+    target.items = target.items.filter(function (x) { return x.id !== itemId; });
+    target.updatedAt = nowISO();
+    await saveEssentialsDoc(d);
+    return true;
+  }
+
+  async function getRoutinesDoc() {
+    var d = await DB.get("maintenanceRoutines", "main");
+    if (!d) {
+      d = { key: "main", categories: [] };
+      await DB.put("maintenanceRoutines", d);
+    }
+    if (!Array.isArray(d.categories)) d.categories = [];
+    return d;
+  }
+
+  async function saveRoutinesDoc(doc) {
+    if (!doc || doc.key !== "main") throw new Error("saveRoutines: key main required");
+    if (!Array.isArray(doc.categories)) doc.categories = [];
+    await DB.put("maintenanceRoutines", doc);
+    return doc;
+  }
+
+  async function routinesListCategories() {
+    var d = await getRoutinesDoc();
+    return d.categories.slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || "")); });
+  }
+
+  async function routinesAddCategory(name) {
+    var d = await getRoutinesDoc();
+    var c = { id: uid(), name: (name || "Category").trim() || "Category", checklists: [], createdAt: nowISO() };
+    d.categories.push(c);
+    await saveRoutinesDoc(d);
+    return c;
+  }
+
+  async function routinesRenameCategory(categoryId, newName) {
+    var d = await getRoutinesDoc();
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) {
+        d.categories[i].name = (newName || "").trim() || d.categories[i].name;
+        d.categories[i].updatedAt = nowISO();
+        break;
+      }
+    }
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesDeleteCategory(categoryId) {
+    var d = await getRoutinesDoc();
+    d.categories = d.categories.filter(function (x) { return x.id !== categoryId; });
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesAddChecklist(categoryId, name) {
+    var d = await getRoutinesDoc();
+    var c = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    }
+    if (!c) throw new Error("routinesAddChecklist: category not found");
+    if (!Array.isArray(c.checklists)) c.checklists = [];
+
+    var cl = { id: uid(), name: (name || "Checklist").trim() || "Checklist", items: [], createdAt: nowISO() };
+    c.checklists.push(cl);
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return cl;
+  }
+
+  async function routinesRenameChecklist(categoryId, checklistId, newName) {
+    var d = await getRoutinesDoc();
+    var c = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    }
+    if (!c) throw new Error("routinesRenameChecklist: category not found");
+    if (!Array.isArray(c.checklists)) c.checklists = [];
+
+    for (var j = 0; j < c.checklists.length; j++) {
+      if (c.checklists[j].id === checklistId) {
+        c.checklists[j].name = (newName || "").trim() || c.checklists[j].name;
+        c.checklists[j].updatedAt = nowISO();
+        break;
+      }
+    }
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesDeleteChecklist(categoryId, checklistId) {
+    var d = await getRoutinesDoc();
+    var c = null;
+    for (var i = 0; i < d.categories.length; i++) {
+      if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    }
+    if (!c) throw new Error("routinesDeleteChecklist: category not found");
+    if (!Array.isArray(c.checklists)) c.checklists = [];
+
+    c.checklists = c.checklists.filter(function (x) { return x.id !== checklistId; });
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesAddChecklistItem(categoryId, checklistId, text) {
+    var d = await getRoutinesDoc();
+    var c = null, cl = null;
+    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    if (!c) throw new Error("routinesAddChecklistItem: category not found");
+    if (!Array.isArray(c.checklists)) c.checklists = [];
+    for (var j = 0; j < c.checklists.length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
+    if (!cl) throw new Error("routinesAddChecklistItem: checklist not found");
+    if (!Array.isArray(cl.items)) cl.items = [];
+
+    var it = { id: uid(), text: (text || "Item").trim() || "Item", done: false, createdAt: nowISO() };
+    cl.items.push(it);
+    cl.updatedAt = nowISO();
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return it;
+  }
+
+  async function routinesToggleChecklistItem(categoryId, checklistId, itemId) {
+    var d = await getRoutinesDoc();
+    var c = null, cl = null;
+    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    if (!c) throw new Error("routinesToggleChecklistItem: category not found");
+    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
+    if (!cl) throw new Error("routinesToggleChecklistItem: checklist not found");
+
+    for (var k = 0; k < (cl.items || []).length; k++) {
+      if (cl.items[k].id === itemId) {
+        cl.items[k].done = !cl.items[k].done;
+        cl.items[k].updatedAt = nowISO();
+        break;
+      }
+    }
+    cl.updatedAt = nowISO();
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesDeleteChecklistItem(categoryId, checklistId, itemId) {
+    var d = await getRoutinesDoc();
+    var c = null, cl = null;
+    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    if (!c) throw new Error("routinesDeleteChecklistItem: category not found");
+    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
+    if (!cl) throw new Error("routinesDeleteChecklistItem: checklist not found");
+
+    cl.items = (cl.items || []).filter(function (x) { return x.id !== itemId; });
+    cl.updatedAt = nowISO();
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  async function routinesResetChecklist(categoryId, checklistId) {
+    var d = await getRoutinesDoc();
+    var c = null, cl = null;
+    for (var i = 0; i < d.categories.length; i++) if (d.categories[i].id === categoryId) { c = d.categories[i]; break; }
+    if (!c) throw new Error("routinesResetChecklist: category not found");
+    for (var j = 0; j < (c.checklists || []).length; j++) if (c.checklists[j].id === checklistId) { cl = c.checklists[j]; break; }
+    if (!cl) throw new Error("routinesResetChecklist: checklist not found");
+
+    for (var k = 0; k < (cl.items || []).length; k++) {
+      cl.items[k].done = false;
+      cl.items[k].updatedAt = nowISO();
+    }
+    cl.updatedAt = nowISO();
+    c.updatedAt = nowISO();
+    await saveRoutinesDoc(d);
+    return true;
+  }
+
+  // -------------------- BACKUP / RESET --------------------
+  async function exportBackup() {
+    var stores = [
+      "settings",
+      "journalEntries",
+      "calendarBlocks",
+      "dayTemplates",
+      "financeCategories",
+      "financeTransactions",
+      "gatekeeperItems",
+      "vaultEntries",
+      "maintenanceEssentials",
+      "maintenanceRoutines"
+    ];
+    var out = { meta: { exportedAt: nowISO(), dbName: DB_NAME, dbVersion: DB_VERSION }, data: {} };
+    for (var i = 0; i < stores.length; i++) out.data[stores[i]] = await DB.getAll(stores[i]);
+    return out;
+  }
+
+  async function importBackup(backupObj) {
+    // Minimal validation
+    if (!backupObj || !backupObj.data) throw new Error("importBackup: invalid backup");
+    var data = backupObj.data;
+
+    var stores = [
+      "settings",
+      "journalEntries",
+      "calendarBlocks",
+      "dayTemplates",
+      "financeCategories",
+      "financeTransactions",
+      "gatekeeperItems",
+      "vaultEntries",
+      "maintenanceEssentials",
+      "maintenanceRoutines"
+    ];
+
+    // Hard reset DB, then re-init, then write data
+    await hardReset();
+    await init();
+
+    for (var i = 0; i < stores.length; i++) {
+      var store = stores[i];
+      var rows = Array.isArray(data[store]) ? data[store] : [];
+
+      // Put rows one-by-one (DB wrapper safe path)
+      for (var j = 0; j < rows.length; j++) {
+        await DB.put(store, rows[j]);
+      }
+    }
+
+    // Ensure today baseline exists
+    await ensureTodayState();
+
+    // Ensure version info updated
+    await ensureMainSettings();
+
+    return { imported: true };
+  }
+
+  async function hardReset() { await DB.destroyDatabase(DB_NAME); return true; }
+
+  async function softResetTodayOnly() {
+    var dk = todayKey();
+    await DB.del("journalEntries", dk);
+
+    var blocks = await listBlocksByDate(dk);
+    for (var i = 0; i < blocks.length; i++) await deleteBlock(blocks[i].id);
+
+    await DB.del("vaultEntries", dk);
+    await ensureTodayState();
+    return true;
+  }
+
+  // -------------------- PUBLIC API --------------------
+  State.init = init;
+  State.ensureTodayState = ensureTodayState;
+
+  State.getSettings = getSettings;
+  State.updateSettings = updateSettings;
+
+  State.financeEnsureMonth = financeEnsureMonth;
+  State.financeDismissReminder = financeDismissReminder;
+  State.financeCloseMonth = financeCloseMonth;
+
+  State.financeListFixedItems = financeListFixedItems;
+  State.financeAddFixedItem = financeAddFixedItem;
+  State.financeUpdateFixedItem = financeUpdateFixedItem;
+  State.financeDeleteFixedItem = financeDeleteFixedItem;
+  State.financeApplyFixedForMonth = financeApplyFixedForMonth;
+
+  State.financeBuildReport = financeBuildReport;
+  State.financeSaveReport = financeSaveReport;
+  State.financeGetReport = financeGetReport;
+  State.financeListReports = financeListReports;
+
+  State.getJournal = getJournal;
+  State.saveJournal = saveJournal;
+  State.setMorningTodos = setMorningTodos;
+  State.completeEvening = completeEvening;
+
+  State.snapshotToVault = snapshotToVault;
+  State.listVault = listVault;
+  State.getVaultSnapshot = getVaultSnapshot;
+
+  State.listBlocksByDate = listBlocksByDate;
+  State.addBlock = addBlock;
+  State.updateBlock = updateBlock; // overload supported
+  State.deleteBlock = deleteBlock;
+
+  State.listTemplates = listTemplates;
+  State.createTemplate = createTemplate;
+  State.updateTemplate = updateTemplate;
+  State.deleteTemplate = deleteTemplate;
+  State.applyTemplateToDate = applyTemplateToDate;
+
+  State.listFinanceCategories = listFinanceCategories;
+  State.getFinanceCategory = getFinanceCategory;
+  State.addFinanceCategory = addFinanceCategory;
+  State.updateFinanceCategory = updateFinanceCategory;
+  State.deleteFinanceCategory = deleteFinanceCategory;
+
+  State.listTransactionsByMonth = listTransactionsByMonth;
+  State.addTransaction = addTransaction;
+  State.updateTransaction = updateTransaction;
+  State.deleteTransaction = deleteTransaction;
+
+  State.addGatekeeper = addGatekeeper;
+  State.listGatekeepers = listGatekeepers;
+  State.updateGatekeeper = updateGatekeeper;
+  State.markGatekeeperPurchased = markGatekeeperPurchased;
+
+  // Maintenance API
+  State.essentialsListCategories = essentialsListCategories;
+  State.essentialsAddCategory = essentialsAddCategory;
+  State.essentialsRenameCategory = essentialsRenameCategory;
+  State.essentialsDeleteCategory = essentialsDeleteCategory;
+  State.essentialsAddItem = essentialsAddItem;
+  State.essentialsUpdateItem = essentialsUpdateItem;
+  State.essentialsDeleteItem = essentialsDeleteItem;
+
+  State.routinesListCategories = routinesListCategories;
+  State.routinesAddCategory = routinesAddCategory;
+  State.routinesRenameCategory = routinesRenameCategory;
+  State.routinesDeleteCategory = routinesDeleteCategory;
+  State.routinesAddChecklist = routinesAddChecklist;
+  State.routinesRenameChecklist = routinesRenameChecklist;
+  State.routinesDeleteChecklist = routinesDeleteChecklist;
+  State.routinesAddChecklistItem = routinesAddChecklistItem;
+  State.routinesToggleChecklistItem = routinesToggleChecklistItem;
+  State.routinesDeleteChecklistItem = routinesDeleteChecklistItem;
+  State.routinesResetChecklist = routinesResetChecklist;
+
+  State.exportBackup = exportBackup;
+  State.importBackup = importBackup;
+  State.hardReset = hardReset;
+  State.softResetTodayOnly = softResetTodayOnly;
+
+  window.State = State;
+})();
