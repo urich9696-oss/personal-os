@@ -5,7 +5,7 @@
    - Version bump controls updates
 */
 
-const CACHE_VERSION = "0.1.3";
+const CACHE_VERSION = "0.1.4";
 const CACHE_NAME = `personal-os-${CACHE_VERSION}`;
 
 function sameOrigin(url) {
