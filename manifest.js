@@ -1,9 +1,28 @@
 {
-  "short_name": "PersonalOS",
   "name": "PERSONAL OS",
+  "short_name": "PERSONAL OS",
+  "description": "The Architecture of Excellence.",
+  "start_url": "./index.html?v=1.0.0",
+  "scope": "./",
   "display": "standalone",
-  "start_url": "./index.html",
-  "theme_color": "#F9F9F7",
   "background_color": "#F9F9F7",
-  "icons": [{ "src": "https://cdn-icons-png.flaticon.com/512/6711/6711613.png", "sizes": "512x512", "type": "image/png" }]
+  "theme_color": "#F9F9F7",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "./icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
 }
