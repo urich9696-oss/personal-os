@@ -13,19 +13,16 @@
 
   <title>PERSONAL OS — The Architecture of Excellence.</title>
 
-  <link rel="manifest" href="./manifest.json?v=1.0.0" />
-  <link rel="stylesheet" href="./style.css?v=1.0.0" />
+  <link rel="manifest" href="./manifest.json?v=1.0.1" />
+  <link rel="stylesheet" href="./style.css?v=1.0.1" />
 
-  <!-- iOS Home Screen Icons (provide files later; app works without them) -->
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
   <link rel="icon" href="./icons/icon-192.png" />
-
 </head>
 <body>
   <div class="bg" aria-hidden="true"></div>
 
   <div id="app" class="app">
-    <!-- Topbar -->
     <header class="topbar glass">
       <button id="btn-dashboard" class="topbar__btn" type="button" aria-label="Go to Dashboard">
         <span class="topbar__btnIcon" aria-hidden="true">◉</span>
@@ -42,12 +39,8 @@
       </div>
     </header>
 
-    <!-- Main View -->
-    <main id="view" class="view" role="main" aria-live="polite">
-      <!-- Router mounts screens here -->
-    </main>
+    <main id="view" class="view" role="main" aria-live="polite"></main>
 
-    <!-- Bottom Nav -->
     <nav class="bottomnav glass" aria-label="Primary">
       <button class="navbtn" type="button" data-route="alignment" aria-label="Alignment">
         <span class="navbtn__icon" aria-hidden="true">◎</span>
@@ -75,11 +68,10 @@
       </button>
     </nav>
 
-    <!-- Toast -->
     <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
   </div>
 
-  <script src="./db.js?v=1.0.0"></script>
-  <script src="./app.js?v=1.0.0"></script>
+  <script src="./db.js?v=1.0.1"></script>
+  <script src="./app.js?v=1.0.1"></script>
 </body>
 </html>
