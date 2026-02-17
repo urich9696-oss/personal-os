@@ -1,7 +1,8 @@
+// js/core/boot.js
 (function () {
   "use strict";
 
-  var APP_VERSION = "0.1.2";
+  var APP_VERSION = "0.1.3";
 
   function setHeaderDate() {
     var el = document.getElementById("header-date");
