@@ -1,138 +1,118 @@
-import { dbProvider, pathDB, financeDB } from './db.js';
+import { db } from './db.js';
 
+// --- ROUTER ---
 window.router = {
-    navigate: (viewId, navElement = null) => {
+    navigate: (id, el) => {
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-        document.getElementById(viewId).classList.add('active');
-        if (navElement) {
-            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            navElement.classList.add('active');
+        document.getElementById(id).classList.add('active');
+        if(el) {
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            el.classList.add('active');
         }
-        if(viewId === 'dashboard') systemOS.refreshDashboard();
-        if(viewId === 'maintenance') maintenanceUI.render();
-        if(viewId === 'path') pathUI.render();
-        if(viewId === 'finance') financeUI.render();
+        ui.updateDash();
     }
 };
 
-window.alignmentUI = {
-    startFlow: (type) => {
-        const modal = document.getElementById('global-modal');
-        const body = document.getElementById('modal-body');
-        modal.style.display = 'block';
-        body.innerHTML = `<h3>${type.toUpperCase()} FLOW</h3><textarea id="flow-input" style="height:200px" placeholder="Write here..."></textarea><button class="primary-trigger" onclick="alignmentUI.save('${type}')">SAVE</button>`;
+// --- UI ENGINE ---
+window.ui = {
+    showModal: (contentHTML, onConfirm) => {
+        const modal = document.getElementById('modal-overlay');
+        document.getElementById('modal-body').innerHTML = contentHTML;
+        modal.style.display = 'flex';
+        document.getElementById('modal-confirm').onclick = async () => {
+            await onConfirm();
+            ui.closeModal();
+            ui.updateDash();
+        };
     },
-    save: async (type) => {
-        const val = document.getElementById('flow-input').value;
-        const date = new Date().toISOString().split('T')[0];
-        await dbProvider.saveJournal({ date, [type]: val });
-        document.getElementById('global-modal').style.display = 'none';
+    closeModal: () => {
+        document.getElementById('modal-overlay').style.display = 'none';
     },
-    toggleVault: async () => {
-        const v = document.getElementById('vault-list');
-        v.style.display = v.style.display === 'none' ? 'block' : 'none';
-        const logs = await dbProvider.getAllJournals();
-        v.innerHTML = logs.map(l => `<div class="glass" style="padding:10px; margin-bottom:5px;">${l.date}</div>`).join('');
-    }
-};
+    
+    // Path Logic
+    showPathAdd: () => {
+        ui.showModal(`
+            <h2 style="margin:0">New Path Block</h2>
+            <input id="p-title" placeholder="Activity Name">
+            <input type="time" id="p-time" value="09:00">
+        `, async () => {
+            const title = document.getElementById('p-title').value;
+            const time = document.getElementById('p-time').value;
+            if(title) await db.save('path', { title, time });
+            ui.renderPath();
+        });
+    },
 
-window.maintenanceUI = {
-    render: async () => {
-        const items = await dbProvider.getMaintenance();
-        const list = document.getElementById('habit-list');
-        list.innerHTML = items.map(i => `
-            <div class="ops-item" style="display:flex; justify-content:space-between; align-items:center;">
-                <span>${i.title}</span>
-                <div class="checkbox-native ${i.completed ? 'checked' : ''}" onclick="maintenanceUI.toggle(${i.id})"></div>
+    renderPath: async () => {
+        const items = await db.getAll('path');
+        items.sort((a,b) => a.time.localeCompare(b.time));
+        document.getElementById('path-list').innerHTML = items.map(i => `
+            <div class="glass" style="padding:18px; border-radius:18px; margin-bottom:12px;">
+                <small style="color:var(--ios-sub)">${i.time}</small>
+                <div style="font-weight:600">${i.title}</div>
             </div>
         `).join('');
     },
-    showAddModal: () => {
-        const modal = document.getElementById('global-modal');
-        modal.style.display = 'block';
-        document.getElementById('modal-body').innerHTML = `<input id="ops-title" placeholder="Habit Title"><button class="primary-trigger" onclick="maintenanceUI.add()">ADD</button>`;
-    },
-    add: async () => {
-        const title = document.getElementById('ops-title').value;
-        await dbProvider.addMaintenanceItem({ title, completed: false, type: 'habit' });
-        document.getElementById('global-modal').style.display = 'none';
-        maintenanceUI.render();
-    },
-    toggle: async (id) => {
-        const items = await dbProvider.getMaintenance();
-        const item = items.find(i => i.id === id);
-        item.completed = !item.completed;
-        await dbProvider.updateMaintenanceItem(item);
-        maintenanceUI.render();
-    }
-};
 
-window.pathUI = {
-    render: async () => {
-        const blocks = await pathDB.getBlocks();
-        document.getElementById('path-timeline').innerHTML = blocks.map(b => `<div class="time-block"><strong>${b.start}</strong> - ${b.title}</div>`).join('');
-    },
-    showAddModal: () => {
-        const modal = document.getElementById('global-modal');
-        modal.style.display = 'block';
-        document.getElementById('modal-body').innerHTML = `<input id="p-title" placeholder="Task"><input type="time" id="p-start"><button class="primary-trigger" onclick="pathUI.add()">ADD</button>`;
-    },
-    add: async () => {
-        const title = document.getElementById('p-title').value;
-        const start = document.getElementById('p-start').value;
-        await pathDB.saveBlock({ title, start });
-        document.getElementById('global-modal').style.display = 'none';
-        pathUI.render();
-    }
-};
-
-window.financeUI = {
-    render: async () => {
-        const items = await financeDB.getItems();
-        let total = 0;
-        const list = document.getElementById('gatekeeper-list');
-        list.innerHTML = '';
-        items.forEach(i => {
-            total += parseFloat(i.amount);
-            list.innerHTML += `<div class="gatekeeper-card">${i.name} - €${i.amount}</div>`;
+    // Finance Logic
+    showFinAdd: () => {
+        ui.showModal(`
+            <h2 style="margin:0">Log Expense</h2>
+            <input id="f-name" placeholder="Item Name">
+            <input type="number" id="f-amount" placeholder="0.00">
+        `, async () => {
+            const name = document.getElementById('f-name').value;
+            const amount = document.getElementById('f-amount').value;
+            if(name && amount) await db.save('fin', { name, amount: parseFloat(amount) });
+            ui.renderFin();
         });
+    },
+
+    renderFin: async () => {
+        const items = await db.getAll('fin');
+        const total = items.reduce((s, i) => s + i.amount, 0);
         document.getElementById('total-spent').innerText = `€ ${total.toFixed(2)}`;
+        document.getElementById('gatekeeper-list').innerHTML = items.map(i => `
+            <div class="glass" style="padding:15px; border-radius:15px; margin-bottom:10px; display:flex; justify-content:space-between;">
+                <span>${i.name}</span><strong>€${i.amount}</strong>
+            </div>
+        `).join('');
     },
-    showAddModal: () => {
-        const modal = document.getElementById('global-modal');
-        modal.style.display = 'block';
-        document.getElementById('modal-body').innerHTML = `<input id="f-name" placeholder="Item"><input type="number" id="f-amount" placeholder="0.00"><button class="primary-trigger" onclick="financeUI.add()">LOG</button>`;
-    },
-    add: async () => {
-        const name = document.getElementById('f-name').value;
-        const amount = document.getElementById('f-amount').value;
-        await financeDB.saveItem({ name, amount });
-        document.getElementById('global-modal').style.display = 'none';
-        financeUI.render();
+
+    updateDash: async () => {
+        const fins = await db.getAll('fin');
+        const total = fins.reduce((s, i) => s + i.amount, 0);
+        document.getElementById('dash-fin').innerText = `€${Math.round(total)}`;
+        
+        const paths = await db.getAll('path');
+        if(paths.length > 0) {
+            document.getElementById('dash-path').innerText = paths[0].title;
+            document.getElementById('dash-perf').innerText = '100%';
+        }
     }
 };
 
-window.systemOS = {
-    refreshDashboard: async () => {
-        const ops = await dbProvider.getMaintenance();
-        if(ops.length > 0) {
-            const score = Math.round((ops.filter(i => i.completed).length / ops.length) * 100);
-            document.querySelector('#dashboard-grid div:nth-child(1) div').innerText = `${score}%`;
-        }
-    },
+// --- SYSTEM ---
+window.system = {
     exportData: async () => {
-        const data = { maintenance: await dbProvider.getMaintenance(), path: await pathDB.getBlocks(), finance: await financeDB.getItems() };
-        const blob = new Blob([JSON.stringify(data)], {type: 'application/json'});
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'personal_os.json';
-        a.click();
+        const all = await db.getAll('path'); // Simplified for example
+        alert('Data export ready in console (JSON)');
+        console.log(JSON.stringify(all));
     },
-    factoryReset: () => { if(confirm('Clear all?')) { indexedDB.deleteDatabase('PersonalOS_DB'); location.reload(); } }
+    reset: () => {
+        if(confirm('Delete all data?')) {
+            indexedDB.deleteDatabase('PERSONAL_OS_DB');
+            location.reload();
+        }
+    }
 };
 
+// --- INIT ---
 document.addEventListener('DOMContentLoaded', () => {
-    setInterval(() => { document.getElementById('status-clock').innerText = new Date().toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'}); }, 1000);
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
-    systemOS.refreshDashboard();
+    setInterval(() => {
+        document.getElementById('status-clock').innerText = new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+    }, 1000);
+    ui.updateDash();
+    ui.renderPath();
+    ui.renderFin();
 });
