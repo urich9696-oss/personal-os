@@ -103,7 +103,8 @@
       var row = UI.el("div", { className: "todo-row" }, []);
       var right = UI.el("div", { className: "todo-right" }, []);
       var del = UI.el("button", { className: "btn btn-mini", type: "button", text: "Delete" }, []);
-      del.addEventListener("click", function () {
+      del.addEventListener("click", function (e) {
+        e.stopPropagation();
         UI.confirm("Delete Block", "Delete this block?").then(function (ok) {
           if (!ok) return;
           State.deleteBlock(b.id).then(function () {
