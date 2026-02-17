@@ -1,8 +1,8 @@
-/* sw.js — Service Worker / Offline System (Batch 2)
-   Cache version bump: v1.0.1
+/* sw.js — Service Worker / Offline System (Batch 3)
+   Cache version bump: v1.0.2
 */
 
-const CACHE_VERSION = "v1.0.1";
+const CACHE_VERSION = "v1.0.2";
 const CACHE_NAME = `personal-os-${CACHE_VERSION}`;
 
 function basePath() {
@@ -67,9 +67,7 @@ self.addEventListener("fetch", (event) => {
 
       try {
         const fresh = await fetch(req);
-        if (fresh && fresh.ok && fresh.type === "basic") {
-          cache.put(req, fresh.clone());
-        }
+        if (fresh && fresh.ok && fresh.type === "basic") cache.put(req, fresh.clone());
         return fresh;
       } catch (e) {
         if (req.mode === "navigate") {
