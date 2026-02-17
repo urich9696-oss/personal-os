@@ -1,34 +1,25 @@
-/* app.js — Batch 2
+/* app.js — Batch 3
    Adds:
-   - Alignment tab with:
-     - Morning Flow (editable)
-     - Evening Flow (editable, includes 4 master questions)
-     - Vault (read-only list + detail)
-   - Dashboard "Start Journal" opens Alignment with mode chooser
-   - Day close: create immutable Vault snapshot (manual button in Evening Flow)
+   - Maintenance tab: manage Habits + Daily Tasks and check them off for today
+   - Performance score on Dashboard:
+     score = completed_today / total_active_today  (0..100)
+   - Journal/Vault from Batch 2 retained
 */
 
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.1";
+  var APP_VERSION = "1.0.2";
 
   function $(id) { return document.getElementById(id); }
 
   // ---------- Utilities ----------
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
-  function dayKey(d) {
-    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
-  }
-  function monthKey(d) {
-    return d.getFullYear() + "-" + pad2(d.getMonth() + 1);
-  }
+  function dayKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+  function monthKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1); }
   function formatNiceDate(d) {
-    try {
-      return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "2-digit" }).format(d);
-    } catch (e) {
-      return dayKey(d);
-    }
+    try { return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "2-digit" }).format(d); }
+    catch (e) { return dayKey(d); }
   }
 
   function qs() {
@@ -62,19 +53,12 @@
     el.textContent = msg;
     el.classList.add("is-show");
     if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () {
-      el.classList.remove("is-show");
-    }, 2200);
+    toastTimer = setTimeout(function () { el.classList.remove("is-show"); }, 2200);
   }
 
   // ---------- Kill-Switch ----------
   function hasNoSwFlag() {
-    try {
-      var q = qs();
-      return q && q.get("nosw") === "1";
-    } catch (e) {
-      return false;
-    }
+    try { var q = qs(); return q && q.get("nosw") === "1"; } catch (e) { return false; }
   }
 
   async function runKillSwitchIfNeeded() {
@@ -130,7 +114,6 @@
       var parsed = parseHash();
       current = parsed.route;
 
-      // Only tabs get active state (dashboard is not a tab)
       setNavActive(current);
 
       var view = $("view");
@@ -138,9 +121,9 @@
 
       try {
         view.innerHTML = "";
-        if (current === "dashboard") Screens.dashboard(view);
-        else if (current === "alignment") Screens.alignment(view, parsed.params);
-        else if (current === "maintenance") Screens.maintenance(view);
+        if (current === "dashboard") await Screens.dashboard(view);
+        else if (current === "alignment") await Screens.alignment(view, parsed.params);
+        else if (current === "maintenance") await Screens.maintenance(view);
         else if (current === "path") Screens.path(view);
         else if (current === "finance") Screens.finance(view);
         else if (current === "settings") Screens.settings(view);
@@ -150,54 +133,41 @@
       }
     }
 
-    function onChange(fn) {
-      window.addEventListener("hashchange", fn);
-    }
+    function onChange(fn) { window.addEventListener("hashchange", fn); }
 
     return { go: go, render: render, onChange: onChange, getCurrent: getCurrent };
   })();
 
-  // ---------- State (Batch 2: journal + vault only) ----------
+  // ---------- State ----------
   var State = (function () {
     var s = {
       today: dayKey(new Date()),
       month: monthKey(new Date()),
-      performanceScore: 0,
-      nextBlockLabel: "No blocks yet",
-      budgetRemainingLabel: "—",
-      gatekeeperLabel: "No active lock",
 
+      // Alignment
       morning: null,
       evening: null,
       vaultList: [],
-      vaultDetail: null
+      vaultDetail: null,
+
+      // Maintenance
+      habits: [],
+      tasks: [],
+      checksToday: [],
+      perf: { total: 0, done: 0, score: 0 }
     };
 
     function defaultMorning() {
-      return {
-        focus: "",
-        gratitude: "",
-        intention: ""
-      };
+      return { focus: "", gratitude: "", intention: "" };
     }
-
     function defaultEvening() {
-      return {
-        wins: "",
-        lessons: "",
-        master1: "",
-        master2: "",
-        master3: "",
-        master4: ""
-      };
+      return { wins: "", lessons: "", master1: "", master2: "", master3: "", master4: "" };
     }
 
     async function loadTodayJournal() {
       var day = s.today;
-
       var m = await DB.getJournal(day, "morning");
       var e = await DB.getJournal(day, "evening");
-
       s.morning = m ? (m.payload || defaultMorning()) : defaultMorning();
       s.evening = e ? (e.payload || defaultEvening()) : defaultEvening();
     }
@@ -212,9 +182,7 @@
       await DB.upsertJournal(s.today, "evening", payload);
     }
 
-    async function loadVaultList() {
-      s.vaultList = await DB.listVault();
-    }
+    async function loadVaultList() { s.vaultList = await DB.listVault(); }
 
     async function loadVaultDetail(dayKey) {
       s.vaultDetail = await DB.getVaultSnapshot(dayKey);
@@ -223,8 +191,6 @@
 
     async function closeDayToVault() {
       var day = s.today;
-
-      // If already closed, do not overwrite (immutable semantics)
       var existing = await DB.getVaultSnapshot(day);
       if (existing) return { ok: false, reason: "already_closed" };
 
@@ -236,14 +202,13 @@
         if (allJournal[i].flow === "evening") evening = allJournal[i].payload || null;
       }
 
+      // Maintenance snapshot (today)
+      var maint = await computeMaintenanceSnapshot();
+
       var snapshot = {
         dayKey: day,
-        journal: {
-          morning: morning,
-          evening: evening
-        },
-        // Placeholders for later batches (merged into snapshot in Batch 6)
-        maintenance: null,
+        journal: { morning: morning, evening: evening },
+        maintenance: maint,
         path: null,
         finance: null,
         gatekeeper: null
@@ -253,6 +218,105 @@
       return { ok: true };
     }
 
+    // ---- Maintenance ----
+    async function loadMaintenance() {
+      s.habits = await DB.listHabits();
+      s.tasks = await DB.listTasks();
+      s.checksToday = await DB.listChecksForDay(s.today);
+      s.perf = computePerformanceLocal();
+    }
+
+    function isTargetChecked(kind, id) {
+      var tkey = kind + ":" + id;
+      for (var i = 0; i < s.checksToday.length; i++) {
+        if (s.checksToday[i].targetKey === tkey) return true;
+      }
+      return false;
+    }
+
+    async function toggleCheck(kind, id, checked) {
+      await DB.setChecked(s.today, kind, id, checked);
+      s.checksToday = await DB.listChecksForDay(s.today);
+      s.perf = computePerformanceLocal();
+      return s.perf;
+    }
+
+    async function addHabit(name) {
+      await DB.addHabit(name);
+      s.habits = await DB.listHabits();
+      s.perf = computePerformanceLocal();
+    }
+
+    async function addTask(name, category) {
+      await DB.addTask(name, category);
+      s.tasks = await DB.listTasks();
+      s.perf = computePerformanceLocal();
+    }
+
+    async function setHabitActive(id, active) {
+      await DB.setHabitActive(id, active);
+      s.habits = await DB.listHabits();
+      s.perf = computePerformanceLocal();
+    }
+
+    async function setTaskActive(id, active) {
+      await DB.setTaskActive(id, active);
+      s.tasks = await DB.listTasks();
+      s.perf = computePerformanceLocal();
+    }
+
+    function computePerformanceLocal() {
+      var activeHabits = s.habits.filter(function (h) { return !!h.active; });
+      var activeTasks = s.tasks.filter(function (t) { return !!t.active; });
+      var total = activeHabits.length + activeTasks.length;
+
+      var done = 0;
+      for (var i = 0; i < activeHabits.length; i++) {
+        if (isTargetChecked("habit", activeHabits[i].id)) done++;
+      }
+      for (var j = 0; j < activeTasks.length; j++) {
+        if (isTargetChecked("task", activeTasks[j].id)) done++;
+      }
+
+      var score = total > 0 ? Math.round((done / total) * 100) : 0;
+      return { total: total, done: done, score: score };
+    }
+
+    async function computeMaintenanceSnapshot() {
+      // Snapshot minimal summary
+      var activeHabits = (await DB.listHabits()).filter(function (h) { return !!h.active; });
+      var activeTasks = (await DB.listTasks()).filter(function (t) { return !!t.active; });
+      var checks = await DB.listChecksForDay(s.today);
+
+      var doneKeys = {};
+      for (var i = 0; i < checks.length; i++) doneKeys[checks[i].targetKey] = true;
+
+      var items = [];
+      for (var a = 0; a < activeHabits.length; a++) {
+        items.push({
+          kind: "habit",
+          id: activeHabits[a].id,
+          name: activeHabits[a].name,
+          done: !!doneKeys["habit:" + activeHabits[a].id]
+        });
+      }
+      for (var b = 0; b < activeTasks.length; b++) {
+        items.push({
+          kind: "task",
+          id: activeTasks[b].id,
+          name: activeTasks[b].name,
+          category: activeTasks[b].category || "General",
+          done: !!doneKeys["task:" + activeTasks[b].id]
+        });
+      }
+
+      var total = items.length;
+      var done = items.filter(function (x) { return x.done; }).length;
+      var score = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      return { total: total, done: done, score: score, items: items };
+    }
+
     return {
       s: s,
       loadTodayJournal: loadTodayJournal,
@@ -260,16 +324,20 @@
       saveEvening: saveEvening,
       loadVaultList: loadVaultList,
       loadVaultDetail: loadVaultDetail,
-      closeDayToVault: closeDayToVault
+      closeDayToVault: closeDayToVault,
+
+      loadMaintenance: loadMaintenance,
+      isTargetChecked: isTargetChecked,
+      toggleCheck: toggleCheck,
+      addHabit: addHabit,
+      addTask: addTask,
+      setHabitActive: setHabitActive,
+      setTaskActive: setTaskActive
     };
   })();
 
-  // ---------- UI Helpers ----------
-  function spacer(h) {
-    var s = document.createElement("div");
-    s.style.height = (h || 12) + "px";
-    return s;
-  }
+  // ---------- UI helpers ----------
+  function spacer(h) { var s = document.createElement("div"); s.style.height = (h || 12) + "px"; return s; }
 
   function textLine(title, meta) {
     var wrap = document.createElement("div");
@@ -294,62 +362,9 @@
     return wrap;
   }
 
-  function widgetCard(title, meta, value) {
-    var c = document.createElement("div");
-    c.className = "glass card";
-    c.appendChild(textLine(title, meta));
-    c.appendChild(spacer(10));
-    var v = document.createElement("div");
-    v.className = "h1";
-    v.style.fontSize = "18px";
-    v.style.fontWeight = "820";
-    v.style.margin = "0";
-    v.textContent = value;
-    c.appendChild(v);
-    return c;
-  }
-
-  function labeledInput(label, value, placeholder) {
-    var wrap = document.createElement("div");
-
-    var l = document.createElement("div");
-    l.className = "label";
-    l.textContent = label;
-
-    var i = document.createElement("input");
-    i.className = "input";
-    i.type = "text";
-    i.value = value || "";
-    i.placeholder = placeholder || "";
-
-    wrap.appendChild(l);
-    wrap.appendChild(i);
-
-    return { wrap: wrap, input: i };
-  }
-
-  function labeledTextarea(label, value, placeholder) {
-    var wrap = document.createElement("div");
-
-    var l = document.createElement("div");
-    l.className = "label";
-    l.textContent = label;
-
-    var t = document.createElement("textarea");
-    t.className = "input textarea";
-    t.value = value || "";
-    t.placeholder = placeholder || "";
-
-    wrap.appendChild(l);
-    wrap.appendChild(t);
-
-    return { wrap: wrap, textarea: t };
-  }
-
   function sectionTitle(title, subtitle) {
     var wrap = document.createElement("div");
     wrap.className = "stack";
-
     var h = document.createElement("div");
     h.className = "glass card card--strong";
 
@@ -367,8 +382,55 @@
     return wrap;
   }
 
+  function widgetCard(title, meta, value) {
+    var c = document.createElement("div");
+    c.className = "glass card";
+    c.appendChild(textLine(title, meta));
+    c.appendChild(spacer(10));
+    var v = document.createElement("div");
+    v.className = "h1";
+    v.style.fontSize = "18px";
+    v.style.fontWeight = "820";
+    v.style.margin = "0";
+    v.textContent = value;
+    c.appendChild(v);
+    return c;
+  }
+
+  function labeledTextarea(label, value, placeholder) {
+    var wrap = document.createElement("div");
+    var l = document.createElement("div");
+    l.className = "label";
+    l.textContent = label;
+
+    var t = document.createElement("textarea");
+    t.className = "input textarea";
+    t.value = value || "";
+    t.placeholder = placeholder || "";
+
+    wrap.appendChild(l);
+    wrap.appendChild(t);
+    return { wrap: wrap, textarea: t };
+  }
+
+  function labeledInput(label, value, placeholder) {
+    var wrap = document.createElement("div");
+    var l = document.createElement("div");
+    l.className = "label";
+    l.textContent = label;
+
+    var i = document.createElement("input");
+    i.className = "input";
+    i.type = "text";
+    i.value = value || "";
+    i.placeholder = placeholder || "";
+
+    wrap.appendChild(l);
+    wrap.appendChild(i);
+    return { wrap: wrap, input: i };
+  }
+
   function segmented(initialKey, items, onChange) {
-    // items: [{key,label}]
     var host = document.createElement("div");
     host.className = "glass card segment";
 
@@ -396,7 +458,6 @@
       })(items[i]);
     }
 
-    // initial
     setTimeout(function () { setActive(activeKey); }, 0);
 
     return { el: host, set: setActive };
@@ -405,7 +466,11 @@
   // ---------- Screens ----------
   var Screens = (function () {
 
-    function dashboard(container) {
+    async function dashboard(container) {
+      // compute performance from Maintenance
+      await State.loadMaintenance();
+      var perf = State.s.perf;
+
       var root = document.createElement("div");
       root.className = "stack";
 
@@ -427,18 +492,15 @@
       btn.className = "btnPrimary";
       btn.type = "button";
       btn.textContent = "Start Journal";
-      btn.addEventListener("click", function () {
-        Router.go("alignment", { mode: "choose" });
-      });
+      btn.onclick = function () { Router.go("alignment", { mode: "choose" }); };
 
       hero.appendChild(spacer(10));
       hero.appendChild(btn);
       root.appendChild(hero);
 
-      // Widgets placeholders
       var row1 = document.createElement("div");
       row1.className = "row";
-      row1.appendChild(widgetCard("Performance", "Score", "—"));
+      row1.appendChild(widgetCard("Performance", "Score", perf.total ? (perf.score + "%") : "—"));
       row1.appendChild(widgetCard("Next Block", "Today’s Path", "No blocks yet"));
 
       var row2 = document.createElement("div");
@@ -449,10 +511,33 @@
       root.appendChild(row1);
       root.appendChild(row2);
 
+      var qa = document.createElement("div");
+      qa.className = "glass card";
+      qa.appendChild(textLine("Quick Actions", "Maintenance + Alignment are live"));
+      qa.appendChild(spacer(10));
+
+      var b1 = document.createElement("button");
+      b1.className = "btnGhost";
+      b1.type = "button";
+      b1.textContent = "Open Maintenance";
+      b1.onclick = function () { Router.go("maintenance"); };
+
+      var b2 = document.createElement("button");
+      b2.className = "btnGhost";
+      b2.type = "button";
+      b2.textContent = "Open Alignment";
+      b2.style.marginLeft = "10px";
+      b2.onclick = function () { Router.go("alignment", { mode: "morning" }); };
+
+      qa.appendChild(b1);
+      qa.appendChild(b2);
+
+      root.appendChild(qa);
+
       container.appendChild(root);
     }
 
-    function alignment(container, params) {
+    async function alignment(container, params) {
       var mode = (params && params.get("mode")) ? params.get("mode") : "morning";
       if (mode !== "morning" && mode !== "evening" && mode !== "vault" && mode !== "choose") mode = "morning";
 
@@ -465,9 +550,7 @@
           { key: "evening", label: "Evening" },
           { key: "vault", label: "Vault" }
         ],
-        function (k) {
-          Router.go("alignment", { mode: k });
-        }
+        function (k) { Router.go("alignment", { mode: k }); }
       );
 
       root.appendChild(seg.el);
@@ -476,16 +559,10 @@
       content.className = "stack";
       root.appendChild(content);
 
-      // Render selected
-      if (mode === "choose") {
-        renderChoose(content);
-      } else if (mode === "morning") {
-        renderMorning(content);
-      } else if (mode === "evening") {
-        renderEvening(content);
-      } else if (mode === "vault") {
-        renderVault(content, params);
-      }
+      if (mode === "choose") renderChoose(content);
+      else if (mode === "morning") await renderMorning(content);
+      else if (mode === "evening") await renderEvening(content);
+      else if (mode === "vault") await renderVault(content, params);
 
       container.appendChild(root);
     }
@@ -493,11 +570,9 @@
     function renderChoose(container) {
       var card = document.createElement("div");
       card.className = "glass card";
-
       var p = document.createElement("div");
       p.className = "p";
       p.textContent = "Choose your journaling flow for today.";
-
       card.appendChild(p);
       card.appendChild(spacer(12));
 
@@ -516,18 +591,15 @@
 
       card.appendChild(b1);
       card.appendChild(b2);
-
       container.appendChild(card);
     }
 
     async function renderMorning(container) {
       var card = document.createElement("div");
       card.className = "glass card";
-
       card.appendChild(textLine("Morning Flow", "Today"));
       card.appendChild(spacer(10));
 
-      // load
       await State.loadTodayJournal();
       var m = State.s.morning;
 
@@ -538,7 +610,6 @@
       card.appendChild(focus.wrap);
       card.appendChild(gratitude.wrap);
       card.appendChild(intention.wrap);
-
       card.appendChild(spacer(12));
 
       var save = document.createElement("button");
@@ -565,7 +636,6 @@
     async function renderEvening(container) {
       var card = document.createElement("div");
       card.className = "glass card";
-
       card.appendChild(textLine("Evening Flow", "Today"));
       card.appendChild(spacer(10));
 
@@ -575,27 +645,14 @@
       var wins = labeledTextarea("Wins", e.wins, "What went well today?");
       var lessons = labeledTextarea("Lessons", e.lessons, "What did you learn today?");
 
-      // 4 master questions (English only)
-      var q1 = labeledTextarea(
-        "Master Question 1",
-        e.master1,
-        "Did I act as my best self — disciplined, honest, and courageous — especially when it was hard?"
-      );
-      var q2 = labeledTextarea(
-        "Master Question 2",
-        e.master2,
-        "Did I invest my time and attention into assets (skills, health, relationships), or did I drift into liabilities (distraction, impulse, comfort)?"
-      );
-      var q3 = labeledTextarea(
-        "Master Question 3",
-        e.master3,
-        "What did I do today that increases my freedom and future options — and what must I stop doing?"
-      );
-      var q4 = labeledTextarea(
-        "Master Question 4",
-        e.master4,
-        "If today repeated for 100 days, would my life improve or decay — and what is the one change I commit to tomorrow?"
-      );
+      var q1 = labeledTextarea("Master Question 1", e.master1,
+        "Did I act as my best self — disciplined, honest, and courageous — especially when it was hard?");
+      var q2 = labeledTextarea("Master Question 2", e.master2,
+        "Did I invest my time and attention into assets (skills, health, relationships), or did I drift into liabilities (distraction, impulse, comfort)?");
+      var q3 = labeledTextarea("Master Question 3", e.master3,
+        "What did I do today that increases my freedom and future options — and what must I stop doing?");
+      var q4 = labeledTextarea("Master Question 4", e.master4,
+        "If today repeated for 100 days, would my life improve or decay — and what is the one change I commit to tomorrow?");
 
       card.appendChild(wins.wrap);
       card.appendChild(lessons.wrap);
@@ -624,9 +681,7 @@
             master4: q4.textarea.value.trim()
           });
           toast("Evening saved.");
-        } catch (e) {
-          toast("Save failed.");
-        }
+        } catch (e) { toast("Save failed."); }
       };
 
       var close = document.createElement("button");
@@ -635,7 +690,6 @@
       close.textContent = "Close Day to Vault";
       close.onclick = async function () {
         try {
-          // Save first to avoid snapshot missing latest edits
           await State.saveEvening({
             wins: wins.textarea.value.trim(),
             lessons: lessons.textarea.value.trim(),
@@ -652,9 +706,7 @@
           }
           toast("Day closed to Vault.");
           Router.go("alignment", { mode: "vault" });
-        } catch (e) {
-          toast("Close failed.");
-        }
+        } catch (e) { toast("Close failed."); }
       };
 
       row.appendChild(save);
@@ -669,7 +721,6 @@
 
       var card = document.createElement("div");
       card.className = "glass card";
-
       card.appendChild(textLine("Vault", "Read-only archive"));
       card.appendChild(spacer(10));
 
@@ -677,7 +728,6 @@
       var list = State.s.vaultList || [];
 
       if (selectedDay) {
-        // detail view
         var detail = await State.loadVaultDetail(selectedDay);
         if (!detail) {
           var p = document.createElement("div");
@@ -694,13 +744,15 @@
           var snap = detail.snapshot || {};
           var jm = (snap.journal && snap.journal.morning) ? snap.journal.morning : null;
           var je = (snap.journal && snap.journal.evening) ? snap.journal.evening : null;
+          var mt = snap.maintenance || null;
 
           card.appendChild(renderReadOnlyBlock("Morning", jm));
           card.appendChild(spacer(10));
           card.appendChild(renderReadOnlyBlock("Evening", je));
+          card.appendChild(spacer(10));
+          card.appendChild(renderMaintenanceSummary(mt));
 
           card.appendChild(spacer(12));
-
           var back = document.createElement("button");
           back.className = "btnGhost";
           back.type = "button";
@@ -730,17 +782,15 @@
           var it = document.createElement("div");
           it.className = "item";
           var left = document.createElement("div");
+
           var k = document.createElement("div");
           k.className = "k";
           k.textContent = row.dayKey;
 
           var m = document.createElement("div");
           m.className = "m";
-          try {
-            m.textContent = new Date(row.closedAt).toLocaleString("en-US", { hour: "2-digit", minute: "2-digit" });
-          } catch (e) {
-            m.textContent = "Closed";
-          }
+          try { m.textContent = new Date(row.closedAt).toLocaleString("en-US", { hour: "2-digit", minute: "2-digit" }); }
+          catch (e) { m.textContent = "Closed"; }
 
           left.appendChild(k);
           left.appendChild(m);
@@ -753,9 +803,7 @@
           it.appendChild(left);
           it.appendChild(che);
 
-          it.onclick = function () {
-            Router.go("alignment", { mode: "vault", day: row.dayKey });
-          };
+          it.onclick = function () { Router.go("alignment", { mode: "vault", day: row.dayKey }); };
 
           listEl.appendChild(it);
         })(list[i]);
@@ -763,6 +811,34 @@
 
       card.appendChild(listEl);
       container.appendChild(card);
+    }
+
+    function renderMaintenanceSummary(mt) {
+      var box = document.createElement("div");
+      box.className = "glass card";
+      box.style.boxShadow = "none";
+      box.style.borderRadius = "18px";
+
+      var t = document.createElement("div");
+      t.style.fontWeight = "860";
+      t.style.marginBottom = "8px";
+      t.textContent = "Maintenance";
+      box.appendChild(t);
+
+      if (!mt) {
+        var p = document.createElement("div");
+        p.className = "p";
+        p.textContent = "No maintenance snapshot.";
+        box.appendChild(p);
+        return box;
+      }
+
+      var pill = document.createElement("div");
+      pill.className = "pill";
+      pill.textContent = "Performance: " + mt.score + "% (" + mt.done + "/" + mt.total + ")";
+      box.appendChild(pill);
+
+      return box;
     }
 
     function renderReadOnlyBlock(title, obj) {
@@ -788,15 +864,12 @@
       var pre = document.createElement("div");
       pre.className = "p";
       pre.style.whiteSpace = "pre-wrap";
-      pre.style.fontFamily = "inherit";
       pre.textContent = formatObj(obj);
       box.appendChild(pre);
-
       return box;
     }
 
     function formatObj(obj) {
-      // human readable
       var lines = [];
       var keys = Object.keys(obj);
       for (var i = 0; i < keys.length; i++) {
@@ -809,16 +882,203 @@
       return lines.length ? lines.join("\n\n") : "No content.";
     }
 
-    function maintenance(container) {
-      var root = sectionTitle("Maintenance", "Habits and Daily Tasks management is implemented in Batch 3.");
-      var card = document.createElement("div");
-      card.className = "glass card";
-      var p = document.createElement("div");
-      p.className = "p";
-      p.textContent = "Maintenance feeds the Performance score on the Dashboard (checkbox logic in Batch 3).";
-      card.appendChild(p);
-      root.appendChild(card);
+    async function maintenance(container) {
+      await State.loadMaintenance();
+      var root = sectionTitle("Maintenance", "Habits and Daily Tasks. Check them off — this feeds your Performance score.");
+
+      // Score card
+      var perf = State.s.perf;
+      var scoreCard = document.createElement("div");
+      scoreCard.className = "glass card";
+      scoreCard.appendChild(textLine("Performance", "Today"));
+      scoreCard.appendChild(spacer(10));
+      var pill = document.createElement("div");
+      pill.className = "pill";
+      pill.textContent = perf.total ? (perf.score + "% (" + perf.done + "/" + perf.total + ")") : "No active items yet";
+      scoreCard.appendChild(pill);
+      root.appendChild(scoreCard);
+
+      // Add forms
+      var addCard = document.createElement("div");
+      addCard.className = "glass card";
+      addCard.appendChild(textLine("Add Items", "Create your system"));
+
+      var habitName = labeledInput("New Habit", "", "e.g., Mobility (10 min)");
+      var addHabitBtn = document.createElement("button");
+      addHabitBtn.className = "btnGhost";
+      addHabitBtn.type = "button";
+      addHabitBtn.textContent = "Add Habit";
+      addHabitBtn.onclick = async function () {
+        try {
+          await State.addHabit(habitName.input.value);
+          habitName.input.value = "";
+          toast("Habit added.");
+          Router.go("maintenance");
+        } catch (e) { toast("Habit name required."); }
+      };
+
+      addCard.appendChild(habitName.wrap);
+      addCard.appendChild(addHabitBtn);
+      addCard.appendChild(document.createElement("hr")).className = "hr";
+
+      var taskName = labeledInput("New Daily Task", "", "e.g., Admin (15 min)");
+      var taskCat = labeledInput("Category", "General", "e.g., Mobility / Admin / Home");
+      var addTaskBtn = document.createElement("button");
+      addTaskBtn.className = "btnGhost";
+      addTaskBtn.type = "button";
+      addTaskBtn.textContent = "Add Task";
+      addTaskBtn.onclick = async function () {
+        try {
+          await State.addTask(taskName.input.value, taskCat.input.value);
+          taskName.input.value = "";
+          toast("Task added.");
+          Router.go("maintenance");
+        } catch (e) { toast("Task name required."); }
+      };
+
+      addCard.appendChild(taskName.wrap);
+      addCard.appendChild(taskCat.wrap);
+      addCard.appendChild(addTaskBtn);
+
+      root.appendChild(addCard);
+
+      // Active list
+      var listCard = document.createElement("div");
+      listCard.className = "glass card";
+      listCard.appendChild(textLine("Today Checklist", "Tap to toggle"));
+
+      var listWrap = document.createElement("div");
+      listWrap.className = "stack";
+      listWrap.appendChild(spacer(6));
+
+      var habits = State.s.habits.filter(function (h) { return !!h.active; });
+      var tasks = State.s.tasks.filter(function (t) { return !!t.active; });
+
+      if (!habits.length && !tasks.length) {
+        var p0 = document.createElement("div");
+        p0.className = "p";
+        p0.textContent = "Add at least one Habit or Task to start tracking Performance.";
+        listCard.appendChild(p0);
+      } else {
+        for (var i = 0; i < habits.length; i++) {
+          listWrap.appendChild(makeCheckRow("habit", habits[i].id, habits[i].name, "Habit"));
+        }
+        for (var j = 0; j < tasks.length; j++) {
+          listWrap.appendChild(makeCheckRow("task", tasks[j].id, tasks[j].name, (tasks[j].category || "Task")));
+        }
+        listCard.appendChild(listWrap);
+      }
+
+      root.appendChild(listCard);
+
+      // Manage actives
+      var manage = document.createElement("div");
+      manage.className = "glass card";
+      manage.appendChild(textLine("Manage Items", "Deactivate without deleting"));
+      manage.appendChild(spacer(6));
+
+      var manageList = document.createElement("div");
+      manageList.className = "stack";
+
+      var allHabits = State.s.habits;
+      var allTasks = State.s.tasks;
+
+      if (!allHabits.length && !allTasks.length) {
+        var p1 = document.createElement("div");
+        p1.className = "p";
+        p1.textContent = "Nothing to manage yet.";
+        manage.appendChild(p1);
+      } else {
+        for (var a = 0; a < allHabits.length; a++) {
+          manageList.appendChild(makeActiveRow("habit", allHabits[a].id, allHabits[a].name, !!allHabits[a].active));
+        }
+        for (var b = 0; b < allTasks.length; b++) {
+          manageList.appendChild(makeActiveRow("task", allTasks[b].id, allTasks[b].name + " (" + (allTasks[b].category || "General") + ")", !!allTasks[b].active));
+        }
+        manage.appendChild(manageList);
+      }
+
+      root.appendChild(manage);
+
       container.appendChild(root);
+
+      function makeCheckRow(kind, id, name, meta) {
+        var on = State.isTargetChecked(kind, id);
+
+        var row = document.createElement("div");
+        row.className = "checkrow";
+
+        var left = document.createElement("div");
+        left.className = "checkrow__left";
+
+        var n = document.createElement("div");
+        n.className = "checkrow__name";
+        n.textContent = name;
+
+        var m = document.createElement("div");
+        m.className = "checkrow__meta";
+        m.textContent = meta;
+
+        left.appendChild(n);
+        left.appendChild(m);
+
+        var btn = document.createElement("button");
+        btn.className = "checkrow__btn" + (on ? " is-on" : "");
+        btn.type = "button";
+        btn.textContent = on ? "✓" : "○";
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+
+        btn.onclick = async function () {
+          try {
+            var next = !State.isTargetChecked(kind, id);
+            await State.toggleCheck(kind, id, next);
+            toast(next ? "Checked." : "Unchecked.");
+            Router.go("maintenance");
+          } catch (e) {
+            toast("Update failed.");
+          }
+        };
+
+        row.appendChild(left);
+        row.appendChild(btn);
+        return row;
+      }
+
+      function makeActiveRow(kind, id, label, active) {
+        var row = document.createElement("div");
+        row.className = "checkrow";
+
+        var left = document.createElement("div");
+        left.className = "checkrow__left";
+
+        var n = document.createElement("div");
+        n.className = "checkrow__name";
+        n.textContent = label;
+
+        var m = document.createElement("div");
+        m.className = "checkrow__meta";
+        m.textContent = active ? "Active" : "Inactive";
+
+        left.appendChild(n);
+        left.appendChild(m);
+
+        var btn = document.createElement("button");
+        btn.className = "checkrow__btn" + (active ? " is-on" : "");
+        btn.type = "button";
+        btn.textContent = active ? "On" : "Off";
+        btn.onclick = async function () {
+          try {
+            if (kind === "habit") await State.setHabitActive(id, !active);
+            else await State.setTaskActive(id, !active);
+            toast("Updated.");
+            Router.go("maintenance");
+          } catch (e) { toast("Update failed."); }
+        };
+
+        row.appendChild(left);
+        row.appendChild(btn);
+        return row;
+      }
     }
 
     function path(container) {
@@ -839,7 +1099,7 @@
       card.className = "glass card";
       var p = document.createElement("div");
       p.className = "p";
-      p.textContent = "Batch 5 builds your monthly budget control and impulse-purchase barrier with countdown and unlock logic.";
+      p.textContent = "Batch 5 builds monthly budget control and impulse-purchase barrier with countdown and unlock logic.";
       card.appendChild(p);
       root.appendChild(card);
       container.appendChild(root);
@@ -849,28 +1109,10 @@
       var root = sectionTitle("Settings", "Export/Import and system reset are implemented in Batch 6.");
       var card = document.createElement("div");
       card.className = "glass card";
-
       var p = document.createElement("div");
       p.className = "p";
       p.textContent = "Batch 6 delivers OS integrity: JSON export/import, safe reset, and offline update prompts.";
-
       card.appendChild(p);
-      card.appendChild(spacer(12));
-
-      var btn = document.createElement("button");
-      btn.className = "btnGhost";
-      btn.type = "button";
-      btn.textContent = "Run Offline Check";
-      btn.onclick = async function () {
-        try {
-          await DB.open();
-          toast("Offline storage ready (IndexedDB OK).");
-        } catch (e) {
-          toast("IndexedDB error. Safari Private Mode may block storage.");
-        }
-      };
-
-      card.appendChild(btn);
       root.appendChild(card);
       container.appendChild(root);
     }
@@ -927,10 +1169,8 @@
   async function registerSW() {
     if (!("serviceWorker" in navigator)) return;
     if (hasNoSwFlag()) return;
-
-    try {
-      await navigator.serviceWorker.register("./sw.js?v=" + encodeURIComponent(APP_VERSION), { scope: "./" });
-    } catch (e) {}
+    try { await navigator.serviceWorker.register("./sw.js?v=" + encodeURIComponent(APP_VERSION), { scope: "./" }); }
+    catch (e) {}
   }
 
   // ---------- Boot ----------
@@ -958,19 +1198,14 @@
 
     Router.onChange(Router.render);
 
-    if (!location.hash || location.hash === "#") {
-      Router.go("dashboard");
-    } else {
-      await Router.render();
-    }
+    if (!location.hash || location.hash === "#") Router.go("dashboard");
+    else await Router.render();
 
     registerSW();
   }
 
   boot().catch(function (e) {
     var view = $("view");
-    if (view) {
-      Screens.bootError(view, "Boot Error", String(e && e.message ? e.message : e));
-    }
+    if (view) Screens.bootError(view, "Boot Error", String(e && e.message ? e.message : e));
   });
 })();
