@@ -1,53 +1,64 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#F6F5F2" />
-  <title>PERSONAL OS</title>
-
-  <link rel="manifest" href="./manifest.webmanifest?v=0.1.4" />
-  <link rel="icon" href="./assets/icons/icon-192.png" />
-
-  <link rel="stylesheet" href="./css/styles.css?v=0.1.4" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>PERSONAL OS</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="app">
+
     <header class="topbar">
-      <div class="topbar__left">
-        <div class="topbar__title">PERSONAL OS</div>
-        <div class="topbar__subtitle">The Architecture of Excellence.</div>
-      </div>
-      <div class="topbar__right" id="header-date"></div>
+        <button onclick="app.navigate('dashboard')" class="dash-btn">
+            <span class="icon">◎</span> PERSONAL OS
+        </button>
+        <div id="status-indicator" class="online-dot"></div>
     </header>
 
-    <main class="content" id="app-content"></main>
+    <main id="app-shell">
+        <section id="view-dashboard" class="view active">
+            <h1 class="fade-in">The Architecture of Excellence.</h1>
+            <div class="card-grid">
+                <div class="card">
+                    <small>Next Block</small>
+                    <p id="dash-next-block">Keine Planung vorhanden</p>
+                </div>
+                <div class="card">
+                    <small>Budget Remaining</small>
+                    <p id="dash-budget">0.00 CHF</p>
+                </div>
+            </div>
+            <div class="quick-actions">
+                <button class="action-btn">+ Block</button>
+                <button class="action-btn">+ Transaction</button>
+            </div>
+        </section>
+
+        <section id="view-alignment" class="view"><h1>Alignment</h1></section>
+        <section id="view-maintenance" class="view"><h1>Maintenance</h1></section>
+        <section id="view-path" class="view"><h1>Today's Path</h1></section>
+        <section id="view-finance" class="view"><h1>Finance</h1></section>
+        <section id="view-settings" class="view"><h1>Settings</h1></section>
+    </main>
 
     <nav class="bottom-nav">
-      <button class="bottom-nav__btn" data-route="alignment">Alignment</button>
-      <button class="bottom-nav__btn" data-route="maintenance">Maintenance</button>
-      <button class="bottom-nav__btn" data-route="path">Today’s Path</button>
-      <button class="bottom-nav__btn" data-route="finance">Finance</button>
-      <button class="bottom-nav__btn" data-route="settings">Settings</button>
+        <button onclick="app.navigate('alignment')"><span>◈</span><label>Align</label></button>
+        <button onclick="app.navigate('maintenance')"><span>⚙</span><label>Maint</label></button>
+        <button onclick="app.navigate('path')"><span>◗</span><label>Path</label></button>
+        <button onclick="app.navigate('finance')"><span>₣</span><label>Fin</label></button>
+        <button onclick="app.navigate('settings')"><span>▤</span><label>Set</label></button>
     </nav>
-  </div>
 
-  <div id="toast-host"></div>
-
-  <script src="./js/core/ui.js?v=0.1.4"></script>
-  <script src="./js/core/db.js?v=0.1.4"></script>
-  <script src="./js/core/state.js?v=0.1.4"></script>
-  <script src="./js/core/registry.js?v=0.1.4"></script>
-  <script src="./js/core/router.js?v=0.1.4"></script>
-
-  <script src="./js/screens/dashboard.js?v=0.1.4"></script>
-  <script src="./js/screens/alignment.js?v=0.1.4"></script>
-  <script src="./js/screens/maintenance.js?v=0.1.4"></script>
-  <script src="./js/screens/path.js?v=0.1.4"></script>
-  <script src="./js/screens/finance.js?v=0.1.4"></script>
-  <script src="./js/screens/settings.js?v=0.1.4"></script>
-  <script src="./js/screens/vault.js?v=0.1.4"></script>
-
-  <script src="./js/core/boot.js?v=0.1.4"></script>
+    <script src="db.js"></script>
+    <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
 </body>
 </html>
