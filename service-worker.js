@@ -1,6 +1,6 @@
 /* PERSONAL OS — Service Worker (GitHub Pages subpath-safe)
    - Cache-first app shell
-   - Navigation requests fall back to cached index.html
+   - Navigation requests fall back to cached ./ or index.html
    - Version bump controls updates
 */
 
@@ -19,12 +19,13 @@ self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     self.skipWaiting();
 
-    // Base path is implied by scope; cache relative URLs so it works under /personal-os/
     const ASSETS = [
+      // IMPORTANT: cache both ./ and index.html (with and without query)
       "./",
+      "./index.html",
       "./index.html?v=" + CACHE_VERSION,
-      "./manifest.webmanifest?v=" + CACHE_VERSION,
 
+      "./manifest.webmanifest?v=" + CACHE_VERSION,
       "./css/styles.css?v=" + CACHE_VERSION,
 
       "./js/core/ui.js?v=" + CACHE_VERSION,
@@ -71,15 +72,18 @@ self.addEventListener("fetch", (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
 
-    // SPA navigation fallback
+    // SPA navigation fallback (GitHub Pages often loads /REPO/ without index.html)
     if (isNavigationRequest(req)) {
-      const cached = await cache.match("./index.html?v=" + CACHE_VERSION, { ignoreSearch: true });
-      if (cached) return cached;
+      // Prefer cached app root, then cached index.html
+      const cachedRoot = await cache.match("./", { ignoreSearch: true });
+      if (cachedRoot) return cachedRoot;
 
-      // last resort network
+      const cachedIndex = await cache.match("./index.html", { ignoreSearch: true });
+      if (cachedIndex) return cachedIndex;
+
+      // Last resort network
       try {
-        const net = await fetch(req);
-        return net;
+        return await fetch(req);
       } catch (e) {
         return new Response("Offline", { status: 200, headers: { "Content-Type": "text/plain" } });
       }
@@ -97,7 +101,6 @@ self.addEventListener("fetch", (event) => {
       }
       return net;
     } catch (e) {
-      // If asset missing and offline
       return new Response("", { status: 504 });
     }
   })());
