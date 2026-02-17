@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "0.1.3";
+  var APP_VERSION = "0.1.4";
 
   function setHeaderDate() {
     var el = document.getElementById("header-date");
