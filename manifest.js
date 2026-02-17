@@ -2,7 +2,7 @@
   "name": "PERSONAL OS",
   "short_name": "PERSONAL OS",
   "description": "The Architecture of Excellence.",
-  "start_url": "./index.html?v=1.0.0",
+  "start_url": "./index.html?v=1.0.2",
   "scope": "./",
   "display": "standalone",
   "background_color": "#F9F9F7",
