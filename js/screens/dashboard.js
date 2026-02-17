@@ -1,3 +1,4 @@
+// js/screens/dashboard.js
 (function () {
   "use strict";
 
@@ -7,7 +8,6 @@
 
       var today = UI.formatDateISO(new Date());
 
-      // Data
       var j = await State.getJournal(today);
       var todos = (j && j.morning && Array.isArray(j.morning.todos)) ? j.morning.todos : [];
       var openTodos = todos.filter(function (t) { return !t.done; }).length;
@@ -21,7 +21,6 @@
       var gatekeepers = await State.listGatekeepers();
       var activeCount = gatekeepers.filter(function (g) { return g.status !== "purchased" && g.status !== "cancelled"; }).length;
 
-      // UI
       var top = UI.el("div", { className: "grid-2" }, [
         tile("Performance (ToDos)", openTodos + " offen"),
         tile("Next Block", nextBlockText),
@@ -76,18 +75,17 @@
     var now = new Date();
     var nowMins = now.getHours() * 60 + now.getMinutes();
 
-    // blocks already sorted by start
     for (var i = 0; i < blocks.length; i++) {
       var b = blocks[i];
-      var s = UI.timeToMinutes(b.start);
+      var s = UI.timeToMinutes(b.startTime || b.start);
       if (s === null) continue;
       if (s >= nowMins) {
-        return (b.start || "") + " " + (b.title || "Block");
+        return (b.startTime || b.start || "") + " " + (b.title || "Block");
       }
     }
-    // fallback first
+
     var first = blocks[0];
-    return (first.start || "—") + " " + (first.title || "Block");
+    return (first.startTime || first.start || "—") + " " + (first.title || "Block");
   }
 
   async function computeMonthFinanceSummary(todayISO) {
