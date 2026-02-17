@@ -1,3 +1,4 @@
+// js/screens/path.js
 (function () {
   "use strict";
 
@@ -13,7 +14,6 @@
       var viewMode = params.view || "day"; // day|week
       var action = params.action || null;
 
-      // Controls
       var controls = UI.el("div", { className: "card tile" }, []);
       controls.appendChild(UI.el("div", { className: "tile__label", text: "Planner" }, []));
 
@@ -47,7 +47,6 @@
       container.appendChild(controls);
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
-      // Calendar
       var calCard = UI.el("div", { className: "card tile" }, []);
       calCard.appendChild(UI.el("div", { className: "tile__label", text: "Kalender (" + (viewMode === "week" ? "Week" : "Day") + ")" }, []));
       if (viewMode === "day") await renderDay(calCard, selectedDate);
@@ -56,7 +55,6 @@
 
       container.appendChild(UI.el("div", { style: "height:12px" }, []));
 
-      // ToDos
       var todoCard = UI.el("div", { className: "card tile" }, []);
       todoCard.appendChild(UI.el("div", { className: "tile__label", text: "ToDos (from Morning Journal)" }, []));
       await renderTodos(todoCard, selectedDate);
@@ -85,13 +83,24 @@
     }
 
     blocks.forEach(function (b) {
-      var row = UI.el("div", { className: "todo-row" }, []);
+      var s = (b.startTime || "—");
+      var e = (b.endTime || "—");
+      var t = (b.title || "Block");
+      var type = (b.type || "block");
+      var note = (b.note || "").trim();
+
       var left = UI.el("div", { className: "todo-left" }, [
-        UI.el("div", { className: "todo-text", text: (b.start || "—") + "-" + (b.end || "—") + " · " + (b.title || "Block") }, [])
+        UI.el("div", { className: "todo-text", text: s + "-" + e + " · " + t }, []),
+        UI.el("div", { className: "ui-text", text: "Type: " + type }, [])
       ]);
+
+      if (note) {
+        left.appendChild(UI.el("div", { className: "ui-text", text: note }, []));
+      }
 
       left.addEventListener("click", function () { editBlockFlow(b); });
 
+      var row = UI.el("div", { className: "todo-row" }, []);
       var right = UI.el("div", { className: "todo-right" }, []);
       var del = UI.el("button", { className: "btn btn-mini", type: "button", text: "Delete" }, []);
       del.addEventListener("click", function () {
@@ -115,9 +124,9 @@
 
   async function renderWeek(card, dateISO) {
     var d = new Date(dateISO + "T00:00:00");
-    var day = d.getDay(); // 0 Sun ... 1 Mon
+    var day = d.getDay();
     var delta = (day === 0) ? -6 : (1 - day);
-    d.setDate(d.getDate() + delta); // monday
+    d.setDate(d.getDate() + delta);
 
     for (var i = 0; i < 7; i++) {
       var dd = new Date(d.getTime());
@@ -152,18 +161,32 @@
     var title = await UI.prompt("New Block", "Title", "", "e.g. Work Deep Focus");
     if (title === null) return;
 
-    await State.addBlock({ date: dateISO, start: start, end: end, title: (title || "").trim() });
+    var type = await UI.prompt("New Block", "Type (Focus/Work/Personal/Other)", "Work", "Work");
+    if (type === null) return;
+
+    var note = await UI.prompt("New Block", "Note (optional)", "", "");
+    if (note === null) return;
+
+    await State.addBlock({
+      date: dateISO,
+      title: (title || "").trim(),
+      startTime: start,
+      endTime: end,
+      type: (type || "block").trim() || "block",
+      note: (note || "").trim()
+    });
+
     UI.toast("Block added");
     Router.go("path", { date: dateISO, view: "day" });
   }
 
   async function editBlockFlow(block) {
-    var start = await UI.prompt("Edit Block", "Start (HH:MM)", block.start || "", "09:00");
+    var start = await UI.prompt("Edit Block", "Start (HH:MM)", block.startTime || "", "09:00");
     if (start === null) return;
     start = start.trim();
     if (UI.timeToMinutes(start) === null) { UI.toast("Invalid time"); return; }
 
-    var end = await UI.prompt("Edit Block", "End (HH:MM)", block.end || "", "10:00");
+    var end = await UI.prompt("Edit Block", "End (HH:MM)", block.endTime || "", "10:00");
     if (end === null) return;
     end = end.trim();
     if (UI.timeToMinutes(end) === null) { UI.toast("Invalid time"); return; }
@@ -171,11 +194,20 @@
     var title = await UI.prompt("Edit Block", "Title", block.title || "", "");
     if (title === null) return;
 
-    block.start = start;
-    block.end = end;
-    block.title = (title || "").trim();
+    var type = await UI.prompt("Edit Block", "Type (Focus/Work/Personal/Other)", block.type || "Work", "Work");
+    if (type === null) return;
 
-    await State.updateBlock(block);
+    var note = await UI.prompt("Edit Block", "Note (optional)", block.note || "", "");
+    if (note === null) return;
+
+    await State.updateBlock(block.id, {
+      startTime: start,
+      endTime: end,
+      title: (title || "").trim(),
+      type: (type || "block").trim() || "block",
+      note: (note || "").trim()
+    });
+
     UI.toast("Saved");
     Router.go("path", { date: block.date, view: "day" });
   }
@@ -226,7 +258,19 @@
       var title = await UI.prompt("Template Block", "Title", "", "e.g. Work");
       if (title === null) break;
 
-      blocks.push({ start: start, end: end, title: (title || "").trim() });
+      var type = await UI.prompt("Template Block", "Type (Focus/Work/Personal/Other)", "Work", "Work");
+      if (type === null) break;
+
+      var note = await UI.prompt("Template Block", "Note (optional)", "", "");
+      if (note === null) break;
+
+      blocks.push({
+        startTime: start,
+        endTime: end,
+        title: (title || "").trim(),
+        type: (type || "block").trim() || "block",
+        note: (note || "").trim()
+      });
     }
 
     await State.createTemplate(name, blocks);
@@ -237,13 +281,6 @@
   async function applyTemplatePicker(dateISO) {
     var templates = await State.listTemplates();
     if (!templates.length) { UI.toast("No templates"); return; }
-
-    var html = "<div class='ui-text'>Pick a template:</div><div style='height:10px'></div>";
-    for (var i = 0; i < templates.length; i++) {
-      var t = templates[i];
-      html += "<div class='ui-text'>• " + UI.escapeHtml(t.name) + " (" + (t.blocks ? t.blocks.length : 0) + " blocks)</div>";
-    }
-    html += "<div style='height:10px'></div><div class='ui-text'>Enter exact name:</div>";
 
     var name = await UI.prompt("Apply Template", "Template name", templates[0].name || "", "");
     if (name === null) return;
