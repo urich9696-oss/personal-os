@@ -11,10 +11,10 @@ Datenbank: `personalOS`, Version 2. Alle Stores verwenden `id` als Key Path sowi
 | `milestones` | goalId, title, description, status, targetDate, order |
 | `blockTemplates` | title, description, color, defaultStartTime, items[] |
 | `dayPlans` | date, templateId, items[] |
-| `journalEntries` | date, title, content, mood, energy, tags |
-| `transactions` | type, description, amount, date, categoryId, notes |
+| `journalEntries` | date, time, title, content, mood, energy, wins, challenges, insights, nextImprovement, tags |
+| `transactions` | type, description, amount, date, categoryId, merchant, notes, recurrence, recurrenceInterval, recurrenceUntil |
 | `financeCategories` | name, color |
-| `monthlyBudgets` | month, amount |
+| `monthlyBudgets` | month, amount, categoryBudgets, rollover |
 | `maintenanceTemplates` | title, description, category, preferredTime, startDate, endDate, maxOccurrences, recurrence, interval, weekdays, checklist, paused |
 | `maintenanceDays` | date, status, note, completedAt, checks |
 | `settings` | Record `preferences` mit profile, theme, dashboard, onboardingComplete |
@@ -32,6 +32,8 @@ Ein Blockvorlagenelement enthält `title`, `description`, `type`, `relativeOffse
 Kalendertermine unterstützen keine, tägliche, wöchentliche, monatliche, jährliche oder benutzerdefiniert-tägliche Wiederholung mit frei wählbarem Intervall und optionalem Enddatum.
 
 Maintenance unterstützt einmalig, täglich/alle X Tage, bestimmte Wochentage/alle X Wochen, monatlich/alle X Monate und jährlich/alle X Jahre. Enddatum oder maximale Anzahl begrenzen die Serie. Die zentrale Fälligkeitslogik liegt in `js/utils/date.js`.
+
+Wiederkehrende Finanztransaktionen bleiben als einzelne Serie gespeichert. Finance berechnet die sichtbaren Monatsvorkommen aus Startdatum, Regel, Intervall und optionalem Enddatum. Monatsbudgets sind eigenständige Records; `rollover` übernimmt einen Wert nur in einen noch nicht individuell konfigurierten Folgemonat.
 
 ## Backup und Import
 

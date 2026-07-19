@@ -1,4 +1,4 @@
-const CACHE = "personalos-shell-v8";
+const CACHE = "personalos-shell-v9";
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./css/base.css", "./css/components.css",
   "./js/app.js", "./js/db.js", "./js/state.js", "./js/router.js",

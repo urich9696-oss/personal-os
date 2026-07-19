@@ -12,6 +12,8 @@ const request = req => new Promise((resolve, reject) => {
   req.onsuccess = () => resolve(req.result);
   req.onerror = () => reject(req.error || new Error("IndexedDB-Anfrage fehlgeschlagen"));
 });
+const createId = () => globalThis.crypto?.randomUUID?.() ||
+  `pos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 
 export function openDB() {
   if (instance) return Promise.resolve(instance);
@@ -45,7 +47,7 @@ export const db = {
   async all(name) { return request((await store(name)).getAll()); },
   async put(name, value) {
     const now = new Date().toISOString();
-    const row = { ...value, id: value.id || crypto.randomUUID(), updatedAt: now };
+    const row = { ...value, id: value.id || createId(), updatedAt: now };
     if (!row.createdAt) row.createdAt = now;
     await request((await store(name, "readwrite")).put(row));
     return row;
