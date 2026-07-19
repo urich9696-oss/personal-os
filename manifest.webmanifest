@@ -1,0 +1,24 @@
+{
+  "name": "PersonalOS",
+  "short_name": "PersonalOS",
+  "description": "Privates, offlinefähiges Lebens-Dashboard",
+  "id": "./",
+  "start_url": "./#/dashboard",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f4ef",
+  "theme_color": "#f5f4ef",
+  "lang": "de",
+  "categories": ["productivity", "lifestyle", "finance"],
+  "icons": [
+    {"src": "./assets/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+    {"src": "./assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "./assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ],
+  "shortcuts": [
+    {"name": "Aufgaben", "url": "./#/tasks"},
+    {"name": "Kalender", "url": "./#/calendar"},
+    {"name": "Journal", "url": "./#/journal"}
+  ]
+}
