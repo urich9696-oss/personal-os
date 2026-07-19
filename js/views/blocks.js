@@ -1,72 +1,62 @@
 import { db } from "../db.js";
 import { saveEntity, removeEntity } from "../services/data.js";
-import { dateKey } from "../utils/date.js";
+import { dateKey, pad } from "../utils/date.js";
 import { escapeHTML } from "../utils/format.js";
 import { pageHeader, modal, field, formValues, closeModal, toast, confirmDialog, empty } from "../components/ui.js";
 
-let selectedDate = dateKey();
+let selectedDate=dateKey();
+const blockTypes={focus:"Fokus",routine:"Routine",break:"Pause",appointment:"Termin",task:"Aufgabe",other:"Sonstiges"};
 
-export async function renderBlocks(root) {
-  const [templates, plans] = await Promise.all([db.all("blockTemplates"), db.all("dayPlans")]);
-  const plan = plans.find(item => item.date === selectedDate);
-  root.innerHTML = `${pageHeader("Blocks", "Vorlagen planen, ohne spätere Tagesinstanzen zu verändern.", '<button class="button primary" data-template>＋ Vorlage</button>')}
-    <section class="toolbar"><label>Tag <input type="date" data-date value="${selectedDate}"></label><select data-load><option value="">Vorlage anwenden…</option>${templates.map(t => `<option value="${t.id}">${escapeHTML(t.title)}</option>`).join("")}</select></section>
-    <div class="blocks-layout"><section class="card"><h2>Tagesplan</h2><div class="block-list" data-plan>${plan?.items?.length ? plan.items.map((item,i) => blockRow(item,i,true)).join("") : empty("Noch kein Plan", "Wende eine Vorlage an oder füge einen Block hinzu.")}</div><button class="button ghost" data-add-block>＋ Block</button></section>
-    <section class="card"><h2>Vorlagen</h2><div class="template-list">${templates.length ? templates.map(template => `<article><header><b>${escapeHTML(template.title)}</b><span>${template.items?.length || 0} Blöcke</span></header>${(template.items || []).map((item,i) => blockRow(item,i,false,template.id)).join("")}<footer><button data-edit-template="${template.id}">Bearbeiten</button><button data-delete-template="${template.id}">Löschen</button></footer></article>`).join("") : empty("Keine Vorlagen", "Erstelle wiederverwendbare Tagesstrukturen.")}</div></section></div>`;
-  root.querySelector("[data-date]").onchange = e => { selectedDate = e.target.value; renderBlocks(root); };
-  root.querySelector("[data-template]").onclick = () => templateEditor();
-  root.querySelector("[data-add-block]").onclick = () => planBlockEditor(plan);
-  root.querySelector("[data-load]").onchange = async e => {
-    const template = templates.find(t => t.id === e.target.value); if (!template) return;
-    await saveEntity("dayPlans", { ...(plan || {}), date: selectedDate, items: structuredClone(template.items || []), templateId: template.id }, "instantiate");
-    toast("Unabhängige Tagesinstanz erstellt"); renderBlocks(root);
+export async function renderBlocks(root){
+  const [templates,plans,tasks]=await Promise.all(["blockTemplates","dayPlans","tasks"].map(db.all));
+  const plan=plans.find(item=>item.date===selectedDate);
+  root.innerHTML=`${pageHeader("Blocks","Flexible Vorlagen und unabhängige Tagesinstanzen.",'<button class="button primary" data-template>＋ Vorlage</button>')}
+    <section class="toolbar"><label>Tag <input type="date" data-date value="${selectedDate}"></label><button data-apply ${templates.length?"":"disabled"}>Vorlage anwenden</button><button data-add-block>＋ Tagesblock</button><button data-save-template ${plan?.items?.length?"":"disabled"}>Tag als Vorlage</button></section>
+    <div class="blocks-layout"><section class="card"><header class="section-heading"><div><h2>Tagesplan</h2><small>${totalDuration(plan?.items)} Minuten</small></div></header><div class="block-list">${plan?.items?.length?plan.items.map((item,index)=>dayBlock(item,index,plan.items.length)).join(""):empty("Noch kein Plan","Wende eine Vorlage an oder füge einen Block hinzu.",'<button class="button primary" data-empty-block>Block hinzufügen</button>')}</div></section>
+    <section class="card"><h2>Vorlagen</h2><div class="template-list">${templates.length?templates.map(template=>templateCard(template)).join(""):empty("Keine Vorlagen","Erstelle eine wiederverwendbare Tagesstruktur.",'<button class="button primary" data-empty-template>Vorlage erstellen</button>')}</div></section></div>`;
+  root.querySelector("[data-date]").onchange=e=>{selectedDate=e.target.value;renderBlocks(root);};
+  root.querySelector("[data-template]").onclick=()=>templateEditor({},tasks);
+  root.querySelector("[data-empty-template]")?.addEventListener("click",()=>templateEditor({},tasks));
+  root.querySelector("[data-add-block]").onclick=()=>dayBlockEditor(plan,{},tasks);
+  root.querySelector("[data-empty-block]")?.addEventListener("click",()=>dayBlockEditor(plan,{},tasks));
+  root.querySelector("[data-apply]").onclick=()=>applyTemplateDialog(templates,plan,root);
+  root.querySelector("[data-save-template]").onclick=()=>savePlanAsTemplate(plan);
+  root.querySelectorAll("[data-toggle-block]").forEach(b=>b.onclick=()=>updatePlan(plan,Number(b.dataset.toggleBlock),item=>({...item,done:!item.done}),root));
+  root.querySelectorAll("[data-edit-block]").forEach(b=>b.onclick=()=>dayBlockEditor(plan,plan.items[Number(b.dataset.editBlock)],tasks,Number(b.dataset.editBlock)));
+  root.querySelectorAll("[data-delete-block]").forEach(b=>b.onclick=async()=>{const items=plan.items.filter((_,i)=>i!==Number(b.dataset.deleteBlock));await saveEntity("dayPlans",{...plan,items},"remove-block");renderBlocks(root);});
+  root.querySelectorAll("[data-move-block]").forEach(b=>b.onclick=()=>moveDayBlock(plan,Number(b.dataset.moveBlock),Number(b.dataset.direction),root));
+  root.querySelectorAll("[data-edit-template]").forEach(b=>b.onclick=()=>templateEditor(templates.find(t=>t.id===b.dataset.editTemplate),tasks));
+  root.querySelectorAll("[data-duplicate-template]").forEach(b=>b.onclick=async()=>{const{id,createdAt,updatedAt,...copy}=templates.find(t=>t.id===b.dataset.duplicateTemplate);await saveEntity("blockTemplates",{...structuredClone(copy),title:`${copy.title} (Kopie)`},"duplicate");toast("Vorlage dupliziert");renderBlocks(root);});
+  root.querySelectorAll("[data-delete-template]").forEach(b=>b.onclick=async()=>{if(await confirmDialog("Vorlage löschen? Tagesinstanzen bleiben unabhängig erhalten.")){await removeEntity("blockTemplates",b.dataset.deleteTemplate);renderBlocks(root);}});
+}
+
+const totalDuration=items=>(items||[]).reduce((sum,item)=>sum+Number(item.duration||0),0);
+function dayBlock(item,index,length){return `<article class="block ${item.done?"done":""}" style="--block:${escapeHTML(item.color||"#536fa4")}"><span>${escapeHTML(item.start||"–")}</span><div><b>${escapeHTML(item.title)}</b><small>${blockTypes[item.type||"other"]}${item.description?` · ${escapeHTML(item.description)}`:""}</small></div><small>${item.duration||0} min</small><div class="block-actions"><button data-toggle-block="${index}">${item.done?"✓":"○"}</button><button data-move-block="${index}" data-direction="-1" ${index===0?"disabled":""}>↑</button><button data-move-block="${index}" data-direction="1" ${index===length-1?"disabled":""}>↓</button><button data-edit-block="${index}">✎</button><button data-delete-block="${index}">×</button></div></article>`;}
+function templateCard(template){return `<article class="template-card" style="--template:${escapeHTML(template.color||"#536fa4")}"><header><div><b>${escapeHTML(template.title)}</b><small>${totalDuration(template.items)} Min. · Start ${template.defaultStartTime||"frei"}</small></div></header>${template.description?`<p>${escapeHTML(template.description)}</p>`:""}<div>${(template.items||[]).map(item=>`<span>${escapeHTML(item.title)} <small>+${item.relativeOffset||0}m</small></span>`).join("")}</div><footer><button data-edit-template="${template.id}">Bearbeiten</button><button data-duplicate-template="${template.id}">Duplizieren</button><button data-delete-template="${template.id}">Löschen</button></footer></article>`;}
+
+function templateEditor(template={},tasks=[]){
+  template||={};const items=structuredClone(template.items||[]);
+  const draw=sheet=>{
+    const total = sheet.querySelector("[data-total]");
+    if (total) total.textContent = totalDuration(items);
+    sheet.querySelector("[data-items]").innerHTML=items.map((item,index)=>`<article class="template-item"><header><b>Element ${index+1}</b><button type="button" data-up="${index}" ${index===0?"disabled":""}>↑</button><button type="button" data-down="${index}" ${index===items.length-1?"disabled":""}>↓</button><button type="button" data-remove="${index}">×</button></header>
+      <div class="two-col"><input data-key="title" data-index="${index}" value="${escapeHTML(item.title)}" placeholder="Titel"><select data-key="type" data-index="${index}">${Object.entries(blockTypes).map(([k,v])=>`<option value="${k}" ${k===item.type?"selected":""}>${v}</option>`).join("")}</select></div>
+      <textarea data-key="description" data-index="${index}" placeholder="Beschreibung">${escapeHTML(item.description)}</textarea>
+      <div class="three-col"><label>Relativ + Min.<input data-key="relativeOffset" data-index="${index}" type="number" min="0" value="${item.relativeOffset||0}"></label><label>Alternativzeit<input data-key="standardTime" data-index="${index}" type="time" value="${item.standardTime||""}"></label><label>Dauer<input data-key="duration" data-index="${index}" type="number" min="5" step="5" value="${item.duration||30}"></label></div>
+      <label>Aufgabe<select data-key="taskId" data-index="${index}"><option value="">Keine</option>${tasks.map(t=>`<option value="${t.id}" ${t.id===item.taskId?"selected":""}>${escapeHTML(t.title)}</option>`).join("")}</select></label></article>`).join("");
+    sheet.querySelectorAll("[data-key]").forEach(input=>input.onchange=()=>{items[Number(input.dataset.index)][input.dataset.key]=input.value;if(input.dataset.key==="duration")sheet.querySelector("[data-total]").textContent=totalDuration(items);});
+    sheet.querySelectorAll("[data-remove]").forEach(b=>b.onclick=()=>{items.splice(Number(b.dataset.remove),1);draw(sheet);});
+    sheet.querySelectorAll("[data-up]").forEach(b=>b.onclick=()=>{move(items,Number(b.dataset.up),-1);draw(sheet);});
+    sheet.querySelectorAll("[data-down]").forEach(b=>b.onclick=()=>{move(items,Number(b.dataset.down),1);draw(sheet);});
   };
-  root.querySelectorAll("[data-toggle-block]").forEach(b => b.onclick = async () => {
-    const items = structuredClone(plan.items); items[Number(b.dataset.toggleBlock)].done = !items[Number(b.dataset.toggleBlock)].done;
-    await saveEntity("dayPlans", { ...plan, items }); renderBlocks(root);
-  });
-  root.querySelectorAll("[data-edit-template]").forEach(b => b.onclick = () => templateEditor(templates.find(t => t.id === b.dataset.editTemplate)));
-  root.querySelectorAll("[data-delete-template]").forEach(b => b.onclick = async () => {
-    if (await confirmDialog("Vorlage löschen? Bestehende Tagespläne bleiben erhalten.")) { await removeEntity("blockTemplates", b.dataset.deleteTemplate); renderBlocks(root); }
-  });
+  modal({title:template.id?"Vorlage bearbeiten":"Neue Vorlage",wide:true,content:`<form class="form-grid">${field({label:"Name",name:"title",value:template.title,required:true})}${field({label:"Beschreibung",name:"description",type:"textarea",value:template.description})}<div class="two-col">${field({label:"Farbe",name:"color",type:"color",value:template.color||"#536fa4"})}${field({label:"Standardstart",name:"defaultStartTime",type:"time",value:template.defaultStartTime||"09:00"})}</div><div data-items></div><button type="button" class="button ghost" data-add>＋ Element</button><p><b>Gesamtdauer:</b> <span data-total>${totalDuration(items)}</span> Minuten</p><button class="button primary">Vorlage speichern</button></form>`,onOpen:sheet=>{draw(sheet);sheet.querySelector("[data-add]").onclick=()=>{items.push({title:"Neuer Block",type:"focus",description:"",relativeOffset:totalDuration(items),standardTime:"",duration:30,taskId:""});draw(sheet);};sheet.querySelector("form").onsubmit=async e=>{e.preventDefault();if(!items.length)return toast("Füge mindestens ein Element hinzu","error");await saveEntity("blockTemplates",{...template,...formValues(e.target),items});closeModal();toast("Vorlage gespeichert");window.dispatchEvent(new HashChangeEvent("hashchange"));};}});
 }
 
-function blockRow(item, index, plan, templateId = "") {
-  return `<div class="block ${item.done ? "done" : ""}" draggable="${!plan}" data-index="${index}" data-template-id="${templateId}"><span>${escapeHTML(item.start || "")}</span><b>${escapeHTML(item.title)}</b><small>${escapeHTML(item.duration || "30")} min</small>${plan ? `<button data-toggle-block="${index}">${item.done ? "✓" : "○"}</button>` : "<i>↕</i>"}</div>`;
-}
-
-function templateEditor(template = {}) {
-  const items = structuredClone(template.items || []);
-  const draw = sheet => {
-    sheet.querySelector("[data-items]").innerHTML = items.map((item,i) => `<div class="editable-block" draggable="true" data-index="${i}"><span>↕</span><input value="${escapeHTML(item.start)}" type="time"><input value="${escapeHTML(item.title)}" placeholder="Blockname"><input value="${escapeHTML(item.duration)}" type="number" min="5" step="5"><button type="button" data-remove="${i}">×</button></div>`).join("");
-    sheet.querySelectorAll(".editable-block").forEach(node => {
-      node.ondragstart = e => e.dataTransfer.setData("text/plain", node.dataset.index);
-      node.ondragover = e => e.preventDefault();
-      node.ondrop = e => { e.preventDefault(); const from = Number(e.dataTransfer.getData("text/plain")), to = Number(node.dataset.index); items.splice(to,0,items.splice(from,1)[0]); draw(sheet); };
-      node.querySelectorAll("input").forEach((input,k) => input.onchange = () => items[node.dataset.index][["start","title","duration"][k]] = input.value);
-    });
-    sheet.querySelectorAll("[data-remove]").forEach(b => b.onclick = () => { items.splice(Number(b.dataset.remove),1); draw(sheet); });
-  };
-  modal({
-    title: template.id ? "Vorlage bearbeiten" : "Neue Vorlage",
-    wide: true,
-    content: `<form class="form-grid">${field({label:"Name",name:"title",value:template.title,required:true})}<div data-items></div><button type="button" class="button ghost" data-add>＋ Element</button><button class="button primary">Vorlage speichern</button></form>`,
-    onOpen: sheet => {
-      draw(sheet);
-      sheet.querySelector("[data-add]").onclick = () => { items.push({ start: "09:00", title: "Neuer Block", duration: 30 }); draw(sheet); };
-      sheet.querySelector("form").onsubmit = async e => { e.preventDefault(); await saveEntity("blockTemplates", { ...template, ...formValues(e.target), items }); closeModal(); toast("Vorlage gespeichert"); window.dispatchEvent(new HashChangeEvent("hashchange")); };
-    }
-  });
-}
-
-function planBlockEditor(plan) {
-  modal({
-    title: "Block hinzufügen",
-    content: `<form class="form-grid">${field({label:"Titel",name:"title",required:true})}<div class="two-col">${field({label:"Beginn",name:"start",type:"time",value:"09:00"})}${field({label:"Minuten",name:"duration",type:"number",value:30,min:5,step:5})}</div><button class="button primary">Hinzufügen</button></form>`,
-    onOpen: sheet => sheet.querySelector("form").onsubmit = async e => {
-      e.preventDefault(); const item = { ...formValues(e.target), done: false };
-      await saveEntity("dayPlans", { ...(plan || {}), date: selectedDate, items: [...(plan?.items || []), item] });
-      closeModal(); renderBlocks(document.querySelector("#main"));
-    }
-  });
-}
+function applyTemplateDialog(templates,plan,root){modal({title:"Vorlage anwenden",content:`<form class="form-grid">${field({label:"Vorlage",name:"templateId",type:"select",options:templates.map(t=>[t.id,t.title]),required:true})}${field({label:"Startzeit",name:"startTime",type:"time",value:templates[0]?.defaultStartTime||"09:00",required:true})}<button class="button primary">Tagesinstanz erstellen</button></form>`,onOpen:sheet=>{const form=sheet.querySelector("form");form.elements.templateId.onchange=()=>{form.elements.startTime.value=templates.find(t=>t.id===form.elements.templateId.value)?.defaultStartTime||"09:00";};form.onsubmit=async e=>{e.preventDefault();if(plan?.items?.length&&!await confirmDialog("Bestehenden Tagesplan durch diese Vorlage ersetzen?","Ersetzen"))return;const v=formValues(form),template=templates.find(t=>t.id===v.templateId),items=template.items.map(item=>({...structuredClone(item),start:item.standardTime||addMinutes(v.startTime,Number(item.relativeOffset)||0),color:template.color,done:false}));await saveEntity("dayPlans",{...(plan||{}),date:selectedDate,templateId:template.id,items},"instantiate");closeModal();toast("Unabhängige Tagesinstanz erstellt");renderBlocks(root);};}});}
+export function dayBlockEditor(plan,item={},tasks=[],index=-1){modal({title:index>=0?"Tagesblock bearbeiten":"Tagesblock hinzufügen",content:`<form class="form-grid">${field({label:"Titel",name:"title",value:item.title,required:true})}${field({label:"Beschreibung",name:"description",type:"textarea",value:item.description})}<div class="three-col">${field({label:"Typ",name:"type",type:"select",value:item.type||"focus",options:Object.entries(blockTypes)})}${field({label:"Beginn",name:"start",type:"time",value:item.start||"09:00"})}${field({label:"Minuten",name:"duration",type:"number",value:item.duration||30,min:5,step:5})}</div>${field({label:"Verknüpfte Aufgabe",name:"taskId",type:"select",value:item.taskId||"",options:[["","Keine"],...tasks.map(t=>[t.id,t.title])]})}<button class="button primary">Speichern</button></form>`,onOpen:sheet=>sheet.querySelector("form").onsubmit=async e=>{e.preventDefault();const value={...item,...formValues(e.target),done:item.done||false},items=[...(plan?.items||[])];if(index>=0)items[index]=value;else items.push(value);await saveEntity("dayPlans",{...(plan||{}),date:plan?.date||selectedDate,items},"edit-block");closeModal();window.dispatchEvent(new HashChangeEvent("hashchange"));}});}
+async function savePlanAsTemplate(plan){modal({title:"Tagesplan als Vorlage",content:`<form class="form-grid">${field({label:"Vorlagenname",name:"title",required:true})}${field({label:"Beschreibung",name:"description",type:"textarea"})}${field({label:"Farbe",name:"color",type:"color",value:"#536fa4"})}<button class="button primary">Speichern</button></form>`,onOpen:sheet=>sheet.querySelector("form").onsubmit=async e=>{e.preventDefault();const first=plan.items.find(i=>i.start)?.start||"09:00",items=plan.items.map(i=>({...structuredClone(i),relativeOffset:minutesBetween(first,i.start||first),standardTime:"",done:undefined}));await saveEntity("blockTemplates",{...formValues(e.target),defaultStartTime:first,items},"from-day");closeModal();toast("Vorlage aus Tagesplan erstellt");window.dispatchEvent(new HashChangeEvent("hashchange"));}});}
+async function updatePlan(plan,index,fn,root){const items=structuredClone(plan.items);items[index]=fn(items[index]);await saveEntity("dayPlans",{...plan,items},"toggle-block");renderBlocks(root);}
+async function moveDayBlock(plan,index,direction,root){const items=structuredClone(plan.items);move(items,index,direction);await saveEntity("dayPlans",{...plan,items},"reorder");renderBlocks(root);}
+function move(items,index,direction){const target=index+direction;if(target<0||target>=items.length)return;[items[index],items[target]]=[items[target],items[index]];}
+function addMinutes(time,minutes){const[h,m]=time.split(":").map(Number),total=h*60+m+minutes;return`${pad(Math.floor(total/60)%24)}:${pad(total%60)}`;}
+function minutesBetween(start,end){const toMin=value=>{const[h,m]=value.split(":").map(Number);return h*60+m;};return Math.max(0,toMin(end)-toMin(start));}

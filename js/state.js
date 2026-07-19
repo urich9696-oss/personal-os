@@ -1,9 +1,9 @@
 import { db } from "./db.js";
 
 const defaults = {
-  profile: { name: "", currency: "EUR", weekStart: "monday", timeFormat: "24", calendarView: "month" },
+  profile: { name: "", currency: "CHF", weekStart: "monday", timeFormat: "24", calendarView: "month" },
   theme: "system",
-  dashboard: { priorities: true, timeline: true, tasks: true, dayPlan: true, maintenance: true, path: true, finance: true },
+  dashboard: { progress: true, priorities: true, timeline: true, tasks: true, dayPlan: true, maintenance: true, path: true, finance: true },
   onboardingComplete: false
 };
 

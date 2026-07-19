@@ -18,18 +18,19 @@ export async function renderFinance(root) {
     <section class="finance-summary"><article><span>Einnahmen</span><b class="positive">${money(income,currency())}</b></article><article><span>Ausgaben</span><b class="negative">${money(expense,currency())}</b></article><article><span>Saldo</span><b>${money(income-expense,currency())}</b></article><article><span>Budget übrig</span><b>${budget ? money(Number(budget.amount)-expense,currency()) : "–"}</b></article></section>
     <section class="card chart"><h2>Ausgaben nach Kategorie</h2>${Object.keys(categorySpend).length ? Object.entries(categorySpend).map(([name,value])=>`<div><span>${escapeHTML(name)}</span><i><b style="width:${value/max*100}%"></b></i><strong>${money(value,currency())}</strong></div>`).join("") : "<p class='muted'>Keine Ausgaben in diesem Monat.</p>"}</section>
     <section class="toolbar"><input type="month" data-month value="${month}"><select data-type><option value="all">Alle</option><option value="expense">Ausgaben</option><option value="income">Einnahmen</option></select><button data-budget>Monatsbudget</button><button data-category>Kategorien</button><button data-export>CSV Export</button></section>
-    <section class="card transaction-list">${rows.length ? rows.map(row=>`<article><span class="transaction-icon ${row.type}">${row.type==="income"?"＋":"−"}</span><div><b>${escapeHTML(row.description)}</b><small>${escapeHTML(row.date)} · ${escapeHTML(categories.find(c=>c.id===row.categoryId)?.name || "Ohne Kategorie")}</small></div><strong>${row.type==="income"?"+":"−"}${money(row.amount,currency())}</strong><button data-edit="${row.id}">✎</button><button data-delete="${row.id}">×</button></article>`).join("") : empty("Keine Buchungen","Erfasse deine erste Einnahme oder Ausgabe.")}</section>`;
+    <section class="card transaction-list">${rows.length ? rows.map(row=>`<article><span class="transaction-icon ${row.type}">${row.type==="income"?"＋":"−"}</span><div><b>${escapeHTML(row.description)}</b><small>${escapeHTML(row.date)} · ${escapeHTML(categories.find(c=>c.id===row.categoryId)?.name || "Ohne Kategorie")}</small></div><strong>${row.type==="income"?"+":"−"}${money(row.amount,currency())}</strong><button data-edit="${row.id}">✎</button><button data-delete="${row.id}">×</button></article>`).join("") : empty("Keine Buchungen","Erfasse deine erste Einnahme oder Ausgabe.",'<button class="button primary" data-empty-add>Buchung erfassen</button>')}</section>`;
   root.querySelector("[data-type]").value=type;
   root.querySelector("[data-month]").onchange=e=>{month=e.target.value;renderFinance(root);};
   root.querySelector("[data-type]").onchange=e=>{type=e.target.value;renderFinance(root);};
   root.querySelector("[data-add]").onclick=()=>transactionEditor({},categories);
+  root.querySelector("[data-empty-add]")?.addEventListener("click",()=>transactionEditor({},categories));
   root.querySelector("[data-budget]").onclick=()=>budgetEditor(budget);
   root.querySelector("[data-category]").onclick=()=>categoryManager(categories);
   root.querySelector("[data-export]").onclick=()=>download(`personalos-finance-${month}.csv`,["Datum,Typ,Beschreibung,Betrag,Kategorie",...rows.map(r=>[r.date,r.type,JSON.stringify(r.description),r.amount,JSON.stringify(categories.find(c=>c.id===r.categoryId)?.name||"")].join(","))].join("\n"),"text/csv");
   root.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>transactionEditor(rows.find(r=>r.id===b.dataset.edit),categories));
   root.querySelectorAll("[data-delete]").forEach(b=>b.onclick=async()=>{if(await confirmDialog("Buchung löschen?")){await removeEntity("transactions",b.dataset.delete);renderFinance(root);}});
 }
-const currency=()=>state.settings.profile.currency||"EUR";
+const currency=()=>state.settings.profile.currency||"CHF";
 const total=rows=>rows.reduce((sum,row)=>sum+Number(row.amount||0),0);
 function groupSpend(rows,categories){return rows.filter(r=>r.type==="expense").reduce((out,r)=>{const n=categories.find(c=>c.id===r.categoryId)?.name||"Sonstiges";out[n]=(out[n]||0)+Number(r.amount);return out;},{});}
 

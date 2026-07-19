@@ -1,4 +1,4 @@
-const CACHE = "personalos-shell-v4";
+const CACHE = "personalos-shell-v8";
 const SHELL = [
   "./", "./index.html", "./manifest.webmanifest", "./css/base.css", "./css/components.css",
   "./js/app.js", "./js/db.js", "./js/state.js", "./js/router.js",
@@ -11,7 +11,10 @@ const SHELL = [
   "./assets/icons/icon-512.png"
 ];
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
+});
+self.addEventListener("message", event => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
 self.addEventListener("activate", event => {
   event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));

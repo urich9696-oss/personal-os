@@ -5,21 +5,26 @@ export const icon = name => ({
   tasks: "✓", journal: "✎", finance: "€", maintenance: "↻", settings: "⚙"
 }[name] || "•");
 
-export function toast(message, kind = "") {
+export function toast(message, kind = "", action) {
   const node = document.createElement("div");
   node.className = `toast ${kind}`;
-  node.textContent = message;
+  node.innerHTML = `<span>${escapeHTML(message)}</span>${action ? `<button>${escapeHTML(action.label)}</button>` : ""}`;
+  if (action) node.querySelector("button").onclick = async () => { await action.run(); node.remove(); };
   document.querySelector("#toast-root").append(node);
   requestAnimationFrame(() => node.classList.add("show"));
   setTimeout(() => { node.classList.remove("show"); setTimeout(() => node.remove(), 250); }, 2800);
 }
 
 export function closeModal() {
+  const root = document.querySelector("#modal-root");
+  const returnFocus = root._returnFocus;
   document.querySelector("#modal-root").replaceChildren();
+  returnFocus?.focus?.();
 }
 
 export function modal({ title, content, actions = "", wide = false, onOpen }) {
   const root = document.querySelector("#modal-root");
+  root._returnFocus = document.activeElement;
   root.innerHTML = `<div class="modal-backdrop" data-close><section class="sheet ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
     <header><h2 id="dialog-title">${escapeHTML(title)}</h2><button class="icon-btn" data-close aria-label="Schließen">×</button></header>
     <div class="sheet-content">${content}</div>${actions ? `<footer>${actions}</footer>` : ""}
@@ -27,8 +32,16 @@ export function modal({ title, content, actions = "", wide = false, onOpen }) {
   root.querySelectorAll("[data-close]").forEach(node => node.addEventListener("click", event => {
     if (event.target === node || node.matches("button")) closeModal();
   }));
-  document.addEventListener("keydown", function escape(event) {
-    if (event.key === "Escape") { closeModal(); document.removeEventListener("keydown", escape); }
+  document.addEventListener("keydown", function keyboard(event) {
+    if (!root.firstChild) return document.removeEventListener("keydown", keyboard);
+    if (event.key === "Escape") { closeModal(); document.removeEventListener("keydown", keyboard); }
+    if (event.key === "Tab") {
+      const focusable = [...sheet.querySelectorAll('button,input,select,textarea,a[href],[tabindex]:not([tabindex="-1"])')].filter(node => !node.disabled && node.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
   });
   const sheet = root.querySelector(".sheet");
   sheet.querySelector("input,select,textarea,button")?.focus();

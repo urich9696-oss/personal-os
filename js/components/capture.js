@@ -29,8 +29,8 @@ async function launch(type) {
   return transactionEditor({}, await db.all("financeCategories"), type);
 }
 
-const routeFor = { tasks:"tasks",calendarEvents:"calendar",lifeAreas:"path",goals:"path",milestones:"path",journalEntries:"journal",transactions:"finance",maintenanceTemplates:"maintenance" };
-const labels = { tasks:"Aufgaben",calendarEvents:"Kalender",lifeAreas:"Lebensbereiche",goals:"Ziele",milestones:"Meilensteine",journalEntries:"Journal",transactions:"Finance",maintenanceTemplates:"Maintenance" };
+const routeFor = { tasks:"tasks",calendarEvents:"calendar",lifeAreas:"path",goals:"path",milestones:"path",blockTemplates:"blocks",journalEntries:"journal",transactions:"finance",maintenanceTemplates:"maintenance" };
+const labels = { tasks:"Aufgaben",calendarEvents:"Kalender",lifeAreas:"Lebensbereiche",goals:"Ziele",milestones:"Meilensteine",blockTemplates:"Blockvorlagen",journalEntries:"Journal",transactions:"Finance",maintenanceTemplates:"Maintenance" };
 
 export function openSearch() {
   modal({

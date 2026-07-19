@@ -23,7 +23,7 @@ export const groupBy = (rows, key) => rows.reduce((groups, row) => {
 export async function globalSearch(query) {
   const needle = query.trim().toLocaleLowerCase("de");
   if (!needle) return [];
-  const stores = ["tasks", "calendarEvents", "lifeAreas", "goals", "milestones", "journalEntries", "transactions", "maintenanceTemplates"];
+  const stores = ["tasks", "calendarEvents", "lifeAreas", "goals", "milestones", "blockTemplates", "journalEntries", "transactions", "maintenanceTemplates"];
   const result = [];
   for (const store of stores) {
     for (const row of await db.all(store)) {

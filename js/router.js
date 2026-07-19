@@ -23,7 +23,18 @@ export const router = {
       });
     } catch (error) {
       console.error(error);
-      root.innerHTML = `<section class="error-card"><h1>Etwas ist schiefgelaufen</h1><p>${String(error.message || error)}</p><button onclick="location.reload()">Neu laden</button></section>`;
+      root.replaceChildren();
+      const card = document.createElement("section");
+      card.className = "error-card";
+      const heading = document.createElement("h1");
+      heading.textContent = "Etwas ist schiefgelaufen";
+      const detail = document.createElement("p");
+      detail.textContent = String(error.message || error);
+      const reload = document.createElement("button");
+      reload.textContent = "Neu laden";
+      reload.addEventListener("click", () => location.reload());
+      card.append(heading, detail, reload);
+      root.append(card);
     } finally { root.removeAttribute("aria-busy"); }
   }
 };

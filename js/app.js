@@ -46,7 +46,16 @@ async function boot() {
   await router.render(document.querySelector("#main"));
   if(!state.settings.onboardingComplete) startOnboarding();
   if("serviceWorker"in navigator) {
-    navigator.serviceWorker.register("./service-worker.js").catch(error=>console.warn("Service Worker:",error));
+    navigator.serviceWorker.register("./service-worker.js").then(registration=>{
+      const offerUpdate=worker=>toast("Eine neue PersonalOS-Version ist bereit.","",{label:"Aktualisieren",run:()=>worker.postMessage("SKIP_WAITING")});
+      if(registration.waiting)offerUpdate(registration.waiting);
+      registration.addEventListener("updatefound",()=>{
+        const worker=registration.installing;
+        worker?.addEventListener("statechange",()=>{if(worker.state==="installed"&&navigator.serviceWorker.controller)offerUpdate(worker);});
+      });
+      let refreshing=false;
+      navigator.serviceWorker.addEventListener("controllerchange",()=>{if(!refreshing){refreshing=true;location.reload();}});
+    }).catch(error=>console.warn("Service Worker:",error));
   }
 }
 boot();

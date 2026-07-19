@@ -1,5 +1,5 @@
 export const DB_NAME = "personalOS";
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 export const STORES = [
   "tasks", "calendarEvents", "lifeAreas", "goals", "milestones",
   "blockTemplates", "dayPlans", "journalEntries", "transactions",
@@ -67,18 +67,23 @@ export async function logActivity(action, entity, entityId, detail = "") {
 export async function exportDatabase() {
   const data = {};
   for (const name of STORES) data[name] = await db.all(name);
-  return { app: "PersonalOS", schemaVersion: DB_VERSION, exportedAt: new Date().toISOString(), data };
+  return { meta: { app: "PersonalOS", version: DB_VERSION, exportedAt: new Date().toISOString() }, data };
 }
 
 export function validateBackup(value) {
-  if (!value || value.app !== "PersonalOS" || !value.data || typeof value.data !== "object") {
+  if (!value || value.meta?.app !== "PersonalOS" || !Number.isInteger(value.meta.version) ||
+      typeof value.meta.exportedAt !== "string" || !value.data || typeof value.data !== "object" || Array.isArray(value.data)) {
     throw new Error("Keine gültige PersonalOS-Sicherung");
   }
+  if (value.meta.version > DB_VERSION) throw new Error("Die Sicherung stammt aus einer neueren PersonalOS-Version");
   for (const [name, rows] of Object.entries(value.data)) {
-    if (!STORES.includes(name) || !Array.isArray(rows) || rows.some(row => !row?.id)) {
+    if (!STORES.includes(name) || !Array.isArray(rows) ||
+        rows.some(row => !row || typeof row !== "object" || Array.isArray(row) || typeof row.id !== "string" || !row.id)) {
       throw new Error(`Ungültige Daten in ${name}`);
     }
   }
+  for (const name of STORES) if (value.data[name] != null && !Array.isArray(value.data[name])) throw new Error(`Ungültiger Store ${name}`);
+  try { structuredClone(value.data); } catch { throw new Error("Sicherung enthält nicht unterstützte Werte"); }
   return true;
 }
 
