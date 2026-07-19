@@ -22,6 +22,11 @@ Häkchen dokumentieren ausschließlich in dieser Arbeitsrunde tatsächlich ausge
 - [x] Backup einer neueren Version vor Replace abgelehnt; vorhandene Aufgabe blieb unverändert.
 - [x] Globale Suche lieferte eine Blockvorlage als Treffer.
 - [x] Ziel mit einem abhängigen Meilenstein gelöscht; Warntext, Cascade-Löschung und Entkopplung der erhaltenen Aufgabe geprüft.
+- [x] Strukturierte Journalfelder inklusive Uhrzeit, Wins, Herausforderungen, Erkenntnissen und nächster Verbesserung gespeichert und gerendert.
+- [x] Monatlich wiederkehrende Finanztransaktion im Folgemonat berechnet; Händler- und Wiederholungsfelder im Formular geprüft.
+- [x] Service Worker kontrollierte die App mit Cache `personalos-shell-v9`; Chromium offline geschaltet und Finance-Route erfolgreich neu geladen.
+- [x] Viewports 390 × 844 und 1440 × 900 ohne horizontalen Overflow geprüft; mobile Navigation hatte durchgehend Touchflächen über 44 px, Desktop-Sidebar wechselte korrekt.
+- [x] Dunkles Theme aktiviert und angewendete Dark-Mode-Tokens im Browser geprüft.
 
 ## Noch manuell auf Zielgeräten zu prüfen
 
