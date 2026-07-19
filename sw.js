@@ -1,8 +1,8 @@
 /* sw.js — Service Worker / Offline System (Batch 3)
-   Cache version bump: v1.0.2
+   Cache version bump: v1.0.3
 */
 
-const CACHE_VERSION = "v1.0.2";
+const CACHE_VERSION = "v1.0.3";
 const CACHE_NAME = `personal-os-${CACHE_VERSION}`;
 
 function basePath() {
