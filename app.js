@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.2";
+  var APP_VERSION = "1.0.4";
 
   function $(id) { return document.getElementById(id); }
 
@@ -55,6 +55,18 @@
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.classList.remove("is-show"); }, 2200);
   }
+
+  // ---------- View timers (cleared on every route render) ----------
+  var Timers = {
+    _ids: [],
+    add: function (id) { this._ids.push(id); return id; },
+    clearAll: function () {
+      for (var i = 0; i < this._ids.length; i++) {
+        try { clearInterval(this._ids[i]); } catch (e) {}
+      }
+      this._ids = [];
+    }
+  };
 
   // ---------- Kill-Switch ----------
   function hasNoSwFlag() {
@@ -114,6 +126,7 @@
       var parsed = parseHash();
       current = parsed.route;
 
+      Timers.clearAll();
       setNavActive(current);
 
       var view = $("view");
@@ -124,9 +137,9 @@
         if (current === "dashboard") await Screens.dashboard(view);
         else if (current === "alignment") await Screens.alignment(view, parsed.params);
         else if (current === "maintenance") await Screens.maintenance(view);
-        else if (current === "path") Screens.path(view);
-        else if (current === "finance") Screens.finance(view);
-        else if (current === "settings") Screens.settings(view);
+        else if (current === "path") await Screens.path(view);
+        else if (current === "finance") await Screens.finance(view);
+        else if (current === "settings") await Screens.settings(view);
         else Screens.notFound(view, current);
       } catch (e) {
         Screens.bootError(view, "Render Error", String(e && e.message ? e.message : e));
@@ -430,6 +443,51 @@
     return { wrap: wrap, input: i };
   }
 
+  function makeInput(type, value, placeholder, attrs) {
+    var i = document.createElement("input");
+    i.className = "input";
+    i.type = type || "text";
+    if (value !== null && typeof value !== "undefined") i.value = value;
+    if (placeholder) i.placeholder = placeholder;
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) { i.setAttribute(k, attrs[k]); });
+    }
+    return i;
+  }
+
+  function fieldWrap(labelText, el) {
+    var wrap = document.createElement("div");
+    var l = document.createElement("div");
+    l.className = "label";
+    l.textContent = labelText;
+    wrap.appendChild(l);
+    wrap.appendChild(el);
+    return wrap;
+  }
+
+  function formatMoney(n) {
+    var v = Number(n) || 0;
+    try {
+      return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(v);
+    } catch (e) {
+      return v.toFixed(2) + " €";
+    }
+  }
+
+  function formatCountdown(ms) {
+    if (ms < 0) ms = 0;
+    var s = Math.floor(ms / 1000);
+    var d = Math.floor(s / 86400); s -= d * 86400;
+    var h = Math.floor(s / 3600); s -= h * 3600;
+    var m = Math.floor(s / 60); s -= m * 60;
+    var parts = [];
+    if (d) parts.push(d + "d");
+    parts.push(h + "h");
+    parts.push(m + "m");
+    parts.push(s + "s");
+    return parts.join(" ");
+  }
+
   function segmented(initialKey, items, onChange) {
     var host = document.createElement("div");
     host.className = "glass card segment";
@@ -471,6 +529,35 @@
       await State.loadMaintenance();
       var perf = State.s.perf;
 
+      // Live summaries for widgets (Batches 4 & 5)
+      var today = State.s.today;
+      var month = State.s.month;
+
+      var dayBlocks = await DB.listBlocksByDay(today);
+      var nowD = new Date();
+      var nowHM = pad2(nowD.getHours()) + ":" + pad2(nowD.getMinutes());
+      var nextBlock = null;
+      for (var bi = 0; bi < dayBlocks.length; bi++) {
+        if ((dayBlocks[bi].start || "") >= nowHM) { nextBlock = dayBlocks[bi]; break; }
+      }
+      var nextText = nextBlock
+        ? (nextBlock.start + " · " + nextBlock.title)
+        : (dayBlocks.length ? "Day complete" : "No blocks yet");
+
+      var budget = await DB.getBudget(month);
+      var spent = await DB.sumTransactionsForMonth(month);
+      var budgetText = budget > 0 ? formatMoney(budget - spent) : "—";
+
+      var gates = await DB.listGates();
+      var nowMs = Date.now();
+      var lockedCount = 0, readyCount = 0;
+      for (var gi = 0; gi < gates.length; gi++) {
+        if (nowMs >= gates[gi].unlockAt) readyCount++;
+        else lockedCount++;
+      }
+      var gateText = lockedCount ? (lockedCount + " locked")
+        : (readyCount ? (readyCount + " ready") : "No active lock");
+
       var root = document.createElement("div");
       root.className = "stack";
 
@@ -501,12 +588,12 @@
       var row1 = document.createElement("div");
       row1.className = "row";
       row1.appendChild(widgetCard("Performance", "Score", perf.total ? (perf.score + "%") : "—"));
-      row1.appendChild(widgetCard("Next Block", "Today’s Path", "No blocks yet"));
+      row1.appendChild(widgetCard("Next Block", "Today’s Path", nextText));
 
       var row2 = document.createElement("div");
       row2.className = "row";
-      row2.appendChild(widgetCard("Budget", "Remaining", "—"));
-      row2.appendChild(widgetCard("Gatekeeper", "72h Lock", "No active lock"));
+      row2.appendChild(widgetCard("Budget", "Remaining", budgetText));
+      row2.appendChild(widgetCard("Gatekeeper", "72h Lock", gateText));
 
       root.appendChild(row1);
       root.appendChild(row2);
@@ -1081,39 +1168,515 @@
       }
     }
 
-    function path(container) {
-      var root = sectionTitle("Today’s Path", "Time blocks and template engine are implemented in Batch 4.");
-      var card = document.createElement("div");
-      card.className = "glass card";
-      var p = document.createElement("div");
-      p.className = "p";
-      p.textContent = "Batch 4 adds iOS-like time pickers and a one-click template loader (e.g., Workday).";
-      card.appendChild(p);
-      root.appendChild(card);
+    async function path(container) {
+      var root = sectionTitle("Today’s Path", "Plan your day in time blocks. Load a template to start fast.");
+      var today = State.s.today;
+      var blocks = await DB.listBlocksByDay(today);
+
+      // Today's blocks
+      var listCard = document.createElement("div");
+      listCard.className = "glass card";
+      listCard.appendChild(textLine("Today’s Blocks", blocks.length ? (blocks.length + " scheduled") : "Empty"));
+      listCard.appendChild(spacer(10));
+
+      if (!blocks.length) {
+        var p0 = document.createElement("div");
+        p0.className = "p";
+        p0.textContent = "No time blocks yet. Add one below or load a template.";
+        listCard.appendChild(p0);
+      } else {
+        var list = document.createElement("div");
+        list.className = "list";
+        blocks.forEach(function (b) {
+          var it = document.createElement("div");
+          it.className = "item";
+          var left = document.createElement("div");
+          var k = document.createElement("div");
+          k.className = "k";
+          k.textContent = b.title;
+          var m = document.createElement("div");
+          m.className = "m";
+          m.textContent = (b.start || "—") + (b.end ? (" – " + b.end) : "");
+          left.appendChild(k);
+          left.appendChild(m);
+          var del = document.createElement("button");
+          del.className = "btnGhost";
+          del.type = "button";
+          del.textContent = "Remove";
+          del.onclick = async function () {
+            await DB.deleteBlock(b.id);
+            toast("Block removed.");
+            Router.render();
+          };
+          it.appendChild(left);
+          it.appendChild(del);
+          list.appendChild(it);
+        });
+        listCard.appendChild(list);
+      }
+      root.appendChild(listCard);
+
+      // Add block
+      var addCard = document.createElement("div");
+      addCard.className = "glass card";
+      addCard.appendChild(textLine("Add Block", "Time-boxed focus"));
+      var titleI = makeInput("text", "", "e.g., Deep Work");
+      var startI = makeInput("time", "09:00");
+      var endI = makeInput("time", "10:00");
+      addCard.appendChild(fieldWrap("Title", titleI));
+      var timeRow = document.createElement("div");
+      timeRow.className = "row";
+      timeRow.appendChild(fieldWrap("Start", startI));
+      timeRow.appendChild(fieldWrap("End", endI));
+      addCard.appendChild(timeRow);
+      addCard.appendChild(spacer(12));
+      var addBtn = document.createElement("button");
+      addBtn.className = "btnPrimary";
+      addBtn.type = "button";
+      addBtn.textContent = "Add Block";
+      addBtn.onclick = async function () {
+        try {
+          await DB.addBlock(today, startI.value, endI.value, titleI.value);
+          toast("Block added.");
+          Router.render();
+        } catch (e) { toast(e && e.message ? e.message : "Add failed."); }
+      };
+      addCard.appendChild(addBtn);
+      root.appendChild(addCard);
+
+      // Templates
+      var tplCard = document.createElement("div");
+      tplCard.className = "glass card";
+      tplCard.appendChild(textLine("Templates", "One-tap day plans"));
+      tplCard.appendChild(spacer(10));
+
+      var templates = await DB.listTemplates();
+      if (!templates.length) {
+        var pt = document.createElement("div");
+        pt.className = "p";
+        pt.textContent = "No templates yet. Create the sample Workday, or save today’s blocks below.";
+        tplCard.appendChild(pt);
+        tplCard.appendChild(spacer(10));
+        var seed = document.createElement("button");
+        seed.className = "btnGhost";
+        seed.type = "button";
+        seed.textContent = "Create ‘Workday’ template";
+        seed.onclick = async function () {
+          await DB.addTemplate("Workday", [
+            { start: "07:00", end: "08:00", title: "Morning Routine" },
+            { start: "09:00", end: "12:00", title: "Deep Work" },
+            { start: "12:00", end: "13:00", title: "Lunch" },
+            { start: "13:00", end: "17:00", title: "Focused Tasks" },
+            { start: "18:00", end: "19:00", title: "Training" }
+          ]);
+          toast("Workday template created.");
+          Router.render();
+        };
+        tplCard.appendChild(seed);
+      } else {
+        var tlist = document.createElement("div");
+        tlist.className = "list";
+        templates.forEach(function (t) {
+          var it = document.createElement("div");
+          it.className = "item";
+          var left = document.createElement("div");
+          var k = document.createElement("div");
+          k.className = "k";
+          k.textContent = t.name;
+          var m = document.createElement("div");
+          m.className = "m";
+          m.textContent = (t.blocks ? t.blocks.length : 0) + " blocks";
+          left.appendChild(k);
+          left.appendChild(m);
+          var actions = document.createElement("div");
+          var load = document.createElement("button");
+          load.className = "btnGhost";
+          load.type = "button";
+          load.textContent = "Load";
+          load.onclick = async function () {
+            var n = await DB.applyTemplateToDay(t.id, today);
+            toast("Loaded " + n + " blocks.");
+            Router.render();
+          };
+          var del = document.createElement("button");
+          del.className = "btnGhost";
+          del.type = "button";
+          del.textContent = "Delete";
+          del.style.marginLeft = "8px";
+          del.onclick = async function () {
+            await DB.deleteTemplate(t.id);
+            toast("Template deleted.");
+            Router.render();
+          };
+          actions.appendChild(load);
+          actions.appendChild(del);
+          it.appendChild(left);
+          it.appendChild(actions);
+          tlist.appendChild(it);
+        });
+        tplCard.appendChild(tlist);
+      }
+
+      if (blocks.length) {
+        tplCard.appendChild(spacer(12));
+        var hrt = document.createElement("hr");
+        hrt.className = "hr";
+        tplCard.appendChild(hrt);
+        var nameI = makeInput("text", "", "Template name (e.g., Workday)");
+        tplCard.appendChild(fieldWrap("Save today as template", nameI));
+        tplCard.appendChild(spacer(10));
+        var saveTpl = document.createElement("button");
+        saveTpl.className = "btnGhost";
+        saveTpl.type = "button";
+        saveTpl.textContent = "Save Template";
+        saveTpl.onclick = async function () {
+          try {
+            var tb = blocks.map(function (b) { return { start: b.start, end: b.end, title: b.title }; });
+            await DB.addTemplate(nameI.value, tb);
+            toast("Template saved.");
+            Router.render();
+          } catch (e) { toast(e && e.message ? e.message : "Save failed."); }
+        };
+        tplCard.appendChild(saveTpl);
+      }
+      root.appendChild(tplCard);
+
       container.appendChild(root);
     }
 
-    function finance(container) {
-      var root = sectionTitle("Finance", "Budget tracker and 72h Gatekeeper are implemented in Batch 5.");
-      var card = document.createElement("div");
-      card.className = "glass card";
-      var p = document.createElement("div");
-      p.className = "p";
-      p.textContent = "Batch 5 builds monthly budget control and impulse-purchase barrier with countdown and unlock logic.";
-      card.appendChild(p);
-      root.appendChild(card);
+    async function finance(container) {
+      var root = sectionTitle("Finance", "Monthly budget control and the 72-hour impulse Gatekeeper.");
+      var month = State.s.month;
+      var budget = await DB.getBudget(month);
+      var spent = await DB.sumTransactionsForMonth(month);
+      var remaining = budget - spent;
+
+      // Overview
+      var overview = document.createElement("div");
+      overview.className = "glass card card--strong";
+      overview.appendChild(textLine("Budget", month));
+      overview.appendChild(spacer(10));
+      var pill = document.createElement("div");
+      pill.className = "pill";
+      pill.textContent = budget > 0
+        ? ("Remaining: " + formatMoney(remaining) + " / " + formatMoney(budget))
+        : "No budget set";
+      overview.appendChild(pill);
+      if (budget > 0) {
+        overview.appendChild(spacer(10));
+        var sub = document.createElement("div");
+        sub.className = "p";
+        sub.textContent = "Spent this month: " + formatMoney(spent);
+        overview.appendChild(sub);
+      }
+      root.appendChild(overview);
+
+      // Set budget
+      var budgetCard = document.createElement("div");
+      budgetCard.className = "glass card";
+      budgetCard.appendChild(textLine("Set Monthly Budget", "Applies to " + month));
+      var budgetI = makeInput("number", budget > 0 ? String(budget) : "", "e.g., 1500", { min: "0", step: "1" });
+      budgetCard.appendChild(fieldWrap("Amount (€)", budgetI));
+      budgetCard.appendChild(spacer(12));
+      var saveB = document.createElement("button");
+      saveB.className = "btnPrimary";
+      saveB.type = "button";
+      saveB.textContent = "Save Budget";
+      saveB.onclick = async function () {
+        await DB.setBudget(month, budgetI.value);
+        toast("Budget saved.");
+        Router.render();
+      };
+      budgetCard.appendChild(saveB);
+      root.appendChild(budgetCard);
+
+      // Expenses
+      var expCard = document.createElement("div");
+      expCard.className = "glass card";
+      expCard.appendChild(textLine("Add Expense", "Track your spending"));
+      var amtI = makeInput("number", "", "0.00", { min: "0", step: "0.01" });
+      var noteI = makeInput("text", "", "e.g., Groceries");
+      expCard.appendChild(fieldWrap("Amount (€)", amtI));
+      expCard.appendChild(fieldWrap("Note", noteI));
+      expCard.appendChild(spacer(12));
+      var addE = document.createElement("button");
+      addE.className = "btnGhost";
+      addE.type = "button";
+      addE.textContent = "Add Expense";
+      addE.onclick = async function () {
+        try {
+          await DB.addTransaction(month, amtI.value, noteI.value);
+          toast("Expense added.");
+          Router.render();
+        } catch (e) { toast(e && e.message ? e.message : "Add failed."); }
+      };
+      expCard.appendChild(addE);
+
+      var txns = await DB.listTransactionsByMonth(month);
+      if (txns.length) {
+        expCard.appendChild(spacer(12));
+        var hrx = document.createElement("hr");
+        hrx.className = "hr";
+        expCard.appendChild(hrx);
+        var tl = document.createElement("div");
+        tl.className = "list";
+        txns.forEach(function (t) {
+          var it = document.createElement("div");
+          it.className = "item";
+          var left = document.createElement("div");
+          var k = document.createElement("div");
+          k.className = "k";
+          k.textContent = formatMoney(t.amount);
+          var m = document.createElement("div");
+          m.className = "m";
+          m.textContent = t.note || "—";
+          left.appendChild(k);
+          left.appendChild(m);
+          var del = document.createElement("button");
+          del.className = "btnGhost";
+          del.type = "button";
+          del.textContent = "Delete";
+          del.onclick = async function () {
+            await DB.deleteTransaction(t.id);
+            toast("Expense removed.");
+            Router.render();
+          };
+          it.appendChild(left);
+          it.appendChild(del);
+          tl.appendChild(it);
+        });
+        expCard.appendChild(tl);
+      }
+      root.appendChild(expCard);
+
+      // Gatekeeper
+      var gateCard = document.createElement("div");
+      gateCard.className = "glass card";
+      gateCard.appendChild(textLine("72h Gatekeeper", "Beat impulse purchases"));
+      gateCard.appendChild(spacer(8));
+      var gp = document.createElement("div");
+      gp.className = "p";
+      gp.textContent = "Add something you want to buy. It stays locked for 72 hours before you can approve it.";
+      gateCard.appendChild(gp);
+      gateCard.appendChild(spacer(10));
+      var gItem = makeInput("text", "", "e.g., New headphones");
+      var gAmt = makeInput("number", "", "0.00", { min: "0", step: "0.01" });
+      gateCard.appendChild(fieldWrap("Item", gItem));
+      gateCard.appendChild(fieldWrap("Amount (€)", gAmt));
+      gateCard.appendChild(spacer(12));
+      var addG = document.createElement("button");
+      addG.className = "btnGhost";
+      addG.type = "button";
+      addG.textContent = "Lock for 72h";
+      addG.onclick = async function () {
+        try {
+          await DB.addGate(gItem.value, gAmt.value, 72);
+          toast("Locked for 72 hours.");
+          Router.render();
+        } catch (e) { toast(e && e.message ? e.message : "Add failed."); }
+      };
+      gateCard.appendChild(addG);
+
+      var gates = await DB.listGates();
+      if (gates.length) {
+        gateCard.appendChild(spacer(12));
+        var hrg = document.createElement("hr");
+        hrg.className = "hr";
+        gateCard.appendChild(hrg);
+        var gl = document.createElement("div");
+        gl.className = "list";
+        gates.forEach(function (g) {
+          var it = document.createElement("div");
+          it.className = "checkrow";
+          var left = document.createElement("div");
+          left.className = "checkrow__left";
+          var n = document.createElement("div");
+          n.className = "checkrow__name";
+          n.textContent = g.item + " · " + formatMoney(g.amount);
+          var meta = document.createElement("div");
+          meta.className = "checkrow__meta";
+          var right = document.createElement("div");
+          var now = Date.now();
+
+          if (now >= g.unlockAt) {
+            meta.textContent = "Unlocked — decide now";
+            var ok = document.createElement("button");
+            ok.className = "btnGhost";
+            ok.type = "button";
+            ok.textContent = "Approve";
+            ok.onclick = async function () {
+              await DB.addTransaction(month, g.amount, "Gatekeeper: " + g.item);
+              await DB.deleteGate(g.id);
+              toast("Approved & logged as expense.");
+              Router.render();
+            };
+            var no = document.createElement("button");
+            no.className = "btnGhost";
+            no.type = "button";
+            no.textContent = "Let it go";
+            no.style.marginLeft = "8px";
+            no.onclick = async function () {
+              await DB.deleteGate(g.id);
+              toast("Released. Money saved.");
+              Router.render();
+            };
+            right.appendChild(ok);
+            right.appendChild(no);
+          } else {
+            var cd = document.createElement("span");
+            cd.setAttribute("data-unlock", String(g.unlockAt));
+            cd.textContent = formatCountdown(g.unlockAt - now);
+            meta.appendChild(document.createTextNode("Unlocks in "));
+            meta.appendChild(cd);
+            var cancel = document.createElement("button");
+            cancel.className = "btnGhost";
+            cancel.type = "button";
+            cancel.textContent = "Cancel";
+            cancel.onclick = async function () {
+              await DB.deleteGate(g.id);
+              toast("Cancelled.");
+              Router.render();
+            };
+            right.appendChild(cancel);
+          }
+
+          left.appendChild(n);
+          left.appendChild(meta);
+          it.appendChild(left);
+          it.appendChild(right);
+          gl.appendChild(it);
+        });
+        gateCard.appendChild(gl);
+
+        // Live countdown ticker (cleared on navigation via Timers)
+        Timers.add(setInterval(function () {
+          var els = gateCard.querySelectorAll("[data-unlock]");
+          var now2 = Date.now();
+          var needsRefresh = false;
+          for (var i = 0; i < els.length; i++) {
+            var u = Number(els[i].getAttribute("data-unlock"));
+            var diff = u - now2;
+            if (diff <= 0) { needsRefresh = true; }
+            else { els[i].textContent = formatCountdown(diff); }
+          }
+          if (needsRefresh) Router.render();
+        }, 1000));
+      }
+      root.appendChild(gateCard);
+
       container.appendChild(root);
     }
 
-    function settings(container) {
-      var root = sectionTitle("Settings", "Export/Import and system reset are implemented in Batch 6.");
-      var card = document.createElement("div");
-      card.className = "glass card";
-      var p = document.createElement("div");
-      p.className = "p";
-      p.textContent = "Batch 6 delivers OS integrity: JSON export/import, safe reset, and offline update prompts.";
-      card.appendChild(p);
-      root.appendChild(card);
+    async function settings(container) {
+      var root = sectionTitle("Settings", "Back up, restore, and reset your PERSONAL OS.");
+
+      // Export
+      var expCard = document.createElement("div");
+      expCard.className = "glass card";
+      expCard.appendChild(textLine("Export Data", "Download a JSON backup"));
+      expCard.appendChild(spacer(8));
+      var ep = document.createElement("div");
+      ep.className = "p";
+      ep.textContent = "Save all your journals, habits, tasks, blocks, finances, and locks to a file.";
+      expCard.appendChild(ep);
+      expCard.appendChild(spacer(12));
+      var expBtn = document.createElement("button");
+      expBtn.className = "btnPrimary";
+      expBtn.type = "button";
+      expBtn.textContent = "Export Backup";
+      expBtn.onclick = async function () {
+        try {
+          var data = await DB.exportAll();
+          var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = "personal-os-backup-" + State.s.today + ".json";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+          toast("Backup exported.");
+        } catch (e) { toast("Export failed."); }
+      };
+      expCard.appendChild(expBtn);
+      root.appendChild(expCard);
+
+      // Import
+      var impCard = document.createElement("div");
+      impCard.className = "glass card";
+      impCard.appendChild(textLine("Import Data", "Restore from a backup file"));
+      impCard.appendChild(spacer(12));
+      var fileI = document.createElement("input");
+      fileI.type = "file";
+      fileI.accept = "application/json,.json";
+      fileI.className = "input";
+      impCard.appendChild(fieldWrap("Backup file", fileI));
+      impCard.appendChild(spacer(12));
+      var impBtn = document.createElement("button");
+      impBtn.className = "btnGhost";
+      impBtn.type = "button";
+      impBtn.textContent = "Import & Merge";
+      impBtn.onclick = function () {
+        var f = fileI.files && fileI.files[0];
+        if (!f) { toast("Choose a file first."); return; }
+        var reader = new FileReader();
+        reader.onload = async function () {
+          try {
+            var data = JSON.parse(reader.result);
+            var n = await DB.importAll(data);
+            toast("Imported " + n + " records.");
+            Router.render();
+          } catch (e) { toast(e && e.message ? e.message : "Invalid backup file."); }
+        };
+        reader.onerror = function () { toast("Could not read file."); };
+        reader.readAsText(f);
+      };
+      impCard.appendChild(impBtn);
+      root.appendChild(impCard);
+
+      // Danger zone: reset
+      var resetCard = document.createElement("div");
+      resetCard.className = "glass card";
+      resetCard.appendChild(textLine("Danger Zone", "Erase all data"));
+      resetCard.appendChild(spacer(8));
+      var rp = document.createElement("div");
+      rp.className = "p";
+      rp.textContent = "This permanently deletes everything on this device. Export a backup first.";
+      resetCard.appendChild(rp);
+      resetCard.appendChild(spacer(12));
+      var confI = makeInput("text", "", "Type RESET to confirm");
+      resetCard.appendChild(fieldWrap("Confirmation", confI));
+      resetCard.appendChild(spacer(12));
+      var resetBtn = document.createElement("button");
+      resetBtn.className = "btnGhost";
+      resetBtn.type = "button";
+      resetBtn.textContent = "Reset PERSONAL OS";
+      resetBtn.onclick = async function () {
+        if ((confI.value || "").trim().toUpperCase() !== "RESET") {
+          toast("Type RESET to confirm.");
+          return;
+        }
+        try {
+          await DB.clearAllData();
+          toast("All data cleared.");
+          Router.go("dashboard");
+        } catch (e) { toast("Reset failed."); }
+      };
+      resetCard.appendChild(resetBtn);
+      root.appendChild(resetCard);
+
+      // About
+      var infoCard = document.createElement("div");
+      infoCard.className = "glass card";
+      infoCard.appendChild(textLine("About", "PERSONAL OS"));
+      infoCard.appendChild(spacer(8));
+      var v = document.createElement("div");
+      v.className = "p";
+      v.textContent = "Version " + APP_VERSION + " · The Architecture of Excellence.";
+      infoCard.appendChild(v);
+      root.appendChild(infoCard);
+
       container.appendChild(root);
     }
 
