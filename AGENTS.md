@@ -8,7 +8,7 @@ productivity tool with Dashboard, Alignment, Maintenance, Path, Finance and
 Settings views). All data lives in the browser via IndexedDB (`personal_os_db`,
 see `db.js`). There is **no backend, no build step, no package manager, and no
 dependencies** — the whole app is `index.html`, `app.js`, `db.js`, `sw.js`,
-`manifest.js`, `css/stlye.css` and `assets/icons/`.
+`manifest.json`, `style.css` and `assets/icons/`.
 
 ### Running the app (development)
 Serve the repo root over HTTP and open the app in a browser. A service worker
@@ -28,11 +28,6 @@ There are no lint, test, or build tools configured in this repo (no
 app.
 
 ### Non-obvious caveats
-- **The app currently renders unstyled and logs 404s.** `index.html`/`sw.js`
-  reference `./style.css`, `./manifest.json` and `./icons/*`, but the actual
-  files are `css/stlye.css`, `manifest.js` and `assets/icons/*`. These are
-  pre-existing path mismatches in the repo, not an environment problem. The
-  JavaScript (routing + IndexedDB) works fine regardless.
 - **The Maintenance view does not re-render after adding an item or toggling a
   checkbox.** The handlers call `Router.go("maintenance")`, but since the hash is
   already `#/maintenance` no `hashchange` fires, so the DOM is not rebuilt. The
