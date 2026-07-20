@@ -10,7 +10,7 @@
   var _db = null;
 
   var DB_NAME = "personal_os_db";
-  var DB_VERSION = 1;
+  var DB_VERSION = 2;
 
   function open() {
     if (_db) return Promise.resolve(_db);
@@ -58,6 +58,11 @@
               if (!db.objectStoreNames.contains("budgets")) db.createObjectStore("budgets", { keyPath: "monthKey" });
 
               if (!db.objectStoreNames.contains("gatekeeper")) db.createObjectStore("gatekeeper", { keyPath: "id" });
+            }
+
+            // v2: recurring monthly expenses
+            if (!db.objectStoreNames.contains("recurring")) {
+              db.createObjectStore("recurring", { keyPath: "id" });
             }
           } catch (e) {
             reject(e);
@@ -304,6 +309,211 @@
     return listByIndex("checks", "by_day", dayKey);
   }
 
+  // -------- Today's Path: Time Blocks (Batch 4) --------
+  async function addBlock(dayKey, start, end, title) {
+    var row = {
+      id: uid("block"),
+      dayKey: dayKey,
+      start: String(start || "").trim(),
+      end: String(end || "").trim(),
+      title: String(title || "").trim(),
+      createdAt: Date.now()
+    };
+    if (!row.title) throw new Error("Block title required");
+    if (!row.start) throw new Error("Start time required");
+    await put("blocks", row);
+    return row;
+  }
+
+  async function listBlocksByDay(dayKey) {
+    var all = await listByIndex("blocks", "by_day", dayKey);
+    all.sort(function (a, b) { return (a.start || "").localeCompare(b.start || ""); });
+    return all;
+  }
+
+  async function deleteBlock(id) { return del("blocks", id); }
+
+  // -------- Today's Path: Templates (Batch 4) --------
+  async function addTemplate(name, blocks) {
+    var row = {
+      id: uid("tpl"),
+      name: String(name || "").trim(),
+      blocks: Array.isArray(blocks) ? blocks : [],
+      createdAt: Date.now()
+    };
+    if (!row.name) throw new Error("Template name required");
+    await put("templates", row);
+    return row;
+  }
+
+  async function listTemplates() {
+    var all = await listAll("templates");
+    all.sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    return all;
+  }
+
+  async function deleteTemplate(id) { return del("templates", id); }
+
+  async function applyTemplateToDay(templateId, dayKey) {
+    var tpl = await get("templates", templateId);
+    if (!tpl) return 0;
+    var blocks = tpl.blocks || [];
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      await addBlock(dayKey, b.start, b.end, b.title);
+    }
+    return blocks.length;
+  }
+
+  // -------- Finance: Budget & Transactions (Batch 5) --------
+  async function getBudget(monthKey) {
+    var row = await get("budgets", monthKey);
+    return row ? (Number(row.amount) || 0) : 0;
+  }
+
+  async function setBudget(monthKey, amount) {
+    var row = { monthKey: monthKey, amount: Number(amount) || 0, updatedAt: Date.now() };
+    await put("budgets", row);
+    return row;
+  }
+
+  async function addTransaction(monthKey, amount, note) {
+    var row = {
+      id: uid("txn"),
+      monthKey: monthKey,
+      ts: Date.now(),
+      amount: Number(amount) || 0,
+      note: String(note || "").trim()
+    };
+    if (!(row.amount > 0)) throw new Error("Amount must be greater than 0");
+    await put("transactions", row);
+    return row;
+  }
+
+  async function listTransactionsByMonth(monthKey) {
+    var all = await listByIndex("transactions", "by_month", monthKey);
+    all.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+    return all;
+  }
+
+  async function deleteTransaction(id) { return del("transactions", id); }
+
+  async function sumTransactionsForMonth(monthKey) {
+    var all = await listByIndex("transactions", "by_month", monthKey);
+    var s = 0;
+    for (var i = 0; i < all.length; i++) s += Number(all[i].amount) || 0;
+    return s;
+  }
+
+  // -------- Finance: Recurring monthly expenses --------
+  async function addRecurring(name, amount) {
+    var row = {
+      id: uid("rec"),
+      name: String(name || "").trim(),
+      amount: Number(amount) || 0,
+      active: true,
+      createdAt: Date.now()
+    };
+    if (!row.name) throw new Error("Name required");
+    if (!(row.amount > 0)) throw new Error("Amount must be greater than 0");
+    await put("recurring", row);
+    return row;
+  }
+
+  async function listRecurring() {
+    var all = await listAll("recurring");
+    all.sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    return all;
+  }
+
+  async function deleteRecurring(id) { return del("recurring", id); }
+
+  async function sumRecurring() {
+    var all = await listAll("recurring");
+    var s = 0;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].active !== false) s += Number(all[i].amount) || 0;
+    }
+    return s;
+  }
+
+  // -------- Finance: 72h Gatekeeper (Batch 5) --------
+  async function addGate(item, amount, hours) {
+    var now = Date.now();
+    var h = (typeof hours === "number" && hours > 0) ? hours : 72;
+    var row = {
+      id: uid("gate"),
+      item: String(item || "").trim(),
+      amount: Number(amount) || 0,
+      createdAt: now,
+      unlockAt: now + h * 3600 * 1000,
+      hours: h,
+      status: "locked"
+    };
+    if (!row.item) throw new Error("Item required");
+    await put("gatekeeper", row);
+    return row;
+  }
+
+  async function listGates() {
+    var all = await listAll("gatekeeper");
+    all.sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+    return all;
+  }
+
+  async function updateGate(row) { await put("gatekeeper", row); return row; }
+  async function deleteGate(id) { return del("gatekeeper", id); }
+
+  // -------- OS Integrity: Export / Import / Reset (Batch 6) --------
+  var ALL_STORES = [
+    "meta", "journal", "vault", "habits", "tasks", "checks",
+    "blocks", "templates", "transactions", "budgets", "gatekeeper", "recurring"
+  ];
+
+  function clearStore(storeName) {
+    return tx(storeName, "readwrite").then(function (store) {
+      return new Promise(function (resolve, reject) {
+        var req = store.clear();
+        req.onsuccess = function () { resolve(true); };
+        req.onerror = function () { reject(req.error || new Error("clear failed")); };
+      });
+    });
+  }
+
+  async function exportAll() {
+    var out = { app: "PERSONAL OS", version: DB_VERSION, exportedAt: Date.now(), stores: {} };
+    for (var i = 0; i < ALL_STORES.length; i++) {
+      out.stores[ALL_STORES[i]] = await listAll(ALL_STORES[i]);
+    }
+    return out;
+  }
+
+  async function importAll(data) {
+    if (!data || !data.stores || typeof data.stores !== "object") {
+      throw new Error("Invalid backup file");
+    }
+    var stores = data.stores;
+    var names = Object.keys(stores);
+    var count = 0;
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      if (ALL_STORES.indexOf(name) === -1) continue;
+      var rows = stores[name] || [];
+      for (var j = 0; j < rows.length; j++) {
+        await put(name, rows[j]);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async function clearAllData() {
+    for (var i = 0; i < ALL_STORES.length; i++) {
+      await clearStore(ALL_STORES[i]);
+    }
+    return true;
+  }
+
   DB.open = open;
   DB.get = get;
   DB.put = put;
@@ -331,6 +541,36 @@
   DB.isChecked = isChecked;
   DB.setChecked = setChecked;
   DB.listChecksForDay = listChecksForDay;
+
+  DB.addBlock = addBlock;
+  DB.listBlocksByDay = listBlocksByDay;
+  DB.deleteBlock = deleteBlock;
+
+  DB.addTemplate = addTemplate;
+  DB.listTemplates = listTemplates;
+  DB.deleteTemplate = deleteTemplate;
+  DB.applyTemplateToDay = applyTemplateToDay;
+
+  DB.getBudget = getBudget;
+  DB.setBudget = setBudget;
+  DB.addTransaction = addTransaction;
+  DB.listTransactionsByMonth = listTransactionsByMonth;
+  DB.deleteTransaction = deleteTransaction;
+  DB.sumTransactionsForMonth = sumTransactionsForMonth;
+
+  DB.addRecurring = addRecurring;
+  DB.listRecurring = listRecurring;
+  DB.deleteRecurring = deleteRecurring;
+  DB.sumRecurring = sumRecurring;
+
+  DB.addGate = addGate;
+  DB.listGates = listGates;
+  DB.updateGate = updateGate;
+  DB.deleteGate = deleteGate;
+
+  DB.exportAll = exportAll;
+  DB.importAll = importAll;
+  DB.clearAllData = clearAllData;
 
   window.DB = DB;
 })();
