@@ -10,7 +10,7 @@
   var _db = null;
 
   var DB_NAME = "personal_os_db";
-  var DB_VERSION = 1;
+  var DB_VERSION = 2;
 
   function open() {
     if (_db) return Promise.resolve(_db);
@@ -58,6 +58,11 @@
               if (!db.objectStoreNames.contains("budgets")) db.createObjectStore("budgets", { keyPath: "monthKey" });
 
               if (!db.objectStoreNames.contains("gatekeeper")) db.createObjectStore("gatekeeper", { keyPath: "id" });
+            }
+
+            // v2: recurring monthly expenses
+            if (!db.objectStoreNames.contains("recurring")) {
+              db.createObjectStore("recurring", { keyPath: "id" });
             }
           } catch (e) {
             reject(e);
@@ -400,6 +405,38 @@
     return s;
   }
 
+  // -------- Finance: Recurring monthly expenses --------
+  async function addRecurring(name, amount) {
+    var row = {
+      id: uid("rec"),
+      name: String(name || "").trim(),
+      amount: Number(amount) || 0,
+      active: true,
+      createdAt: Date.now()
+    };
+    if (!row.name) throw new Error("Name required");
+    if (!(row.amount > 0)) throw new Error("Amount must be greater than 0");
+    await put("recurring", row);
+    return row;
+  }
+
+  async function listRecurring() {
+    var all = await listAll("recurring");
+    all.sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    return all;
+  }
+
+  async function deleteRecurring(id) { return del("recurring", id); }
+
+  async function sumRecurring() {
+    var all = await listAll("recurring");
+    var s = 0;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].active !== false) s += Number(all[i].amount) || 0;
+    }
+    return s;
+  }
+
   // -------- Finance: 72h Gatekeeper (Batch 5) --------
   async function addGate(item, amount, hours) {
     var now = Date.now();
@@ -430,7 +467,7 @@
   // -------- OS Integrity: Export / Import / Reset (Batch 6) --------
   var ALL_STORES = [
     "meta", "journal", "vault", "habits", "tasks", "checks",
-    "blocks", "templates", "transactions", "budgets", "gatekeeper"
+    "blocks", "templates", "transactions", "budgets", "gatekeeper", "recurring"
   ];
 
   function clearStore(storeName) {
@@ -520,6 +557,11 @@
   DB.listTransactionsByMonth = listTransactionsByMonth;
   DB.deleteTransaction = deleteTransaction;
   DB.sumTransactionsForMonth = sumTransactionsForMonth;
+
+  DB.addRecurring = addRecurring;
+  DB.listRecurring = listRecurring;
+  DB.deleteRecurring = deleteRecurring;
+  DB.sumRecurring = sumRecurring;
 
   DB.addGate = addGate;
   DB.listGates = listGates;

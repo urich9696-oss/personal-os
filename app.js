@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.4";
+  var APP_VERSION = "1.0.5";
 
   function $(id) { return document.getElementById(id); }
 
@@ -488,6 +488,125 @@
     return parts.join(" ");
   }
 
+  // Chart colour palette (Apple-like, multi-colour)
+  var PALETTE = [
+    "#0071e3", "#34c759", "#ff9500", "#ff2d55", "#5856d6",
+    "#af52de", "#5ac8fa", "#ffcc00", "#00c7be", "#ff3b30", "#8e8e93"
+  ];
+
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
+  function polarPoint(cx, cy, r, angleDeg) {
+    var a = (angleDeg - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+  }
+
+  function arcPath(cx, cy, r, startAngle, endAngle) {
+    var start = polarPoint(cx, cy, r, endAngle);
+    var end = polarPoint(cx, cy, r, startAngle);
+    var largeArc = (endAngle - startAngle) <= 180 ? "0" : "1";
+    return ["M", cx, cy, "L", start.x, start.y,
+      "A", r, r, 0, largeArc, 0, end.x, end.y, "Z"].join(" ");
+  }
+
+  // slices: [{ label, value, color }]. Returns a DOM node with an SVG pie + legend.
+  function pieChart(slices) {
+    var total = 0;
+    for (var i = 0; i < slices.length; i++) total += Number(slices[i].value) || 0;
+
+    var wrap = document.createElement("div");
+    wrap.className = "chart";
+
+    var svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 100 100");
+    svg.setAttribute("class", "chart__svg");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Expense breakdown pie chart");
+
+    var cx = 50, cy = 50, r = 46;
+
+    if (total <= 0) {
+      var empty = document.createElementNS(SVG_NS, "circle");
+      empty.setAttribute("cx", cx); empty.setAttribute("cy", cy); empty.setAttribute("r", r);
+      empty.setAttribute("fill", "rgba(0,0,0,.06)");
+      svg.appendChild(empty);
+    } else if (slices.length === 1) {
+      var full = document.createElementNS(SVG_NS, "circle");
+      full.setAttribute("cx", cx); full.setAttribute("cy", cy); full.setAttribute("r", r);
+      full.setAttribute("fill", slices[0].color);
+      svg.appendChild(full);
+    } else {
+      var angle = 0;
+      for (var j = 0; j < slices.length; j++) {
+        var frac = (Number(slices[j].value) || 0) / total;
+        var sweep = frac * 360;
+        var path = document.createElementNS(SVG_NS, "path");
+        path.setAttribute("d", arcPath(cx, cy, r, angle, angle + sweep));
+        path.setAttribute("fill", slices[j].color);
+        path.setAttribute("stroke", "#fff");
+        path.setAttribute("stroke-width", "1");
+        path.setAttribute("stroke-linejoin", "round");
+        svg.appendChild(path);
+        angle += sweep;
+      }
+    }
+
+    wrap.appendChild(svg);
+
+    var legend = document.createElement("div");
+    legend.className = "legend";
+    for (var k = 0; k < slices.length; k++) {
+      var s = slices[k];
+      var pct = total > 0 ? Math.round(((Number(s.value) || 0) / total) * 100) : 0;
+
+      var rowEl = document.createElement("div");
+      rowEl.className = "legend__row";
+
+      var sw = document.createElement("span");
+      sw.className = "legend__swatch";
+      sw.style.background = s.color;
+
+      var lab = document.createElement("span");
+      lab.className = "legend__label";
+      lab.textContent = s.label;
+
+      var val = document.createElement("span");
+      val.className = "legend__val";
+      val.textContent = formatMoney(s.value) + " · " + pct + "%";
+
+      rowEl.appendChild(sw);
+      rowEl.appendChild(lab);
+      rowEl.appendChild(val);
+      legend.appendChild(rowEl);
+    }
+    wrap.appendChild(legend);
+
+    return wrap;
+  }
+
+  // Build expense slices from one-off transactions (grouped by note) + recurring items.
+  function buildExpenseSlices(txns, recurringItems) {
+    var map = {};
+    var order = [];
+    (txns || []).forEach(function (t) {
+      var key = (t.note && t.note.trim()) ? t.note.trim() : "Uncategorized";
+      if (!(key in map)) { map[key] = 0; order.push(key); }
+      map[key] += Number(t.amount) || 0;
+    });
+
+    var slices = order.map(function (k) { return { label: k, value: map[k] }; });
+
+    (recurringItems || []).forEach(function (rc) {
+      if (rc.active === false) return;
+      slices.push({ label: rc.name + " (monatlich)", value: Number(rc.amount) || 0 });
+    });
+
+    slices = slices.filter(function (s) { return s.value > 0; });
+    slices.sort(function (a, b) { return b.value - a.value; });
+    slices.forEach(function (s, i) { s.color = PALETTE[i % PALETTE.length]; });
+    return slices;
+  }
+
   function segmented(initialKey, items, onChange) {
     var host = document.createElement("div");
     host.className = "glass card segment";
@@ -545,7 +664,7 @@
         : (dayBlocks.length ? "Day complete" : "No blocks yet");
 
       var budget = await DB.getBudget(month);
-      var spent = await DB.sumTransactionsForMonth(month);
+      var spent = (await DB.sumTransactionsForMonth(month)) + (await DB.sumRecurring());
       var budgetText = budget > 0 ? formatMoney(budget - spent) : "—";
 
       var gates = await DB.listGates();
@@ -1345,10 +1464,14 @@
     }
 
     async function finance(container) {
-      var root = sectionTitle("Finance", "Monthly budget control and the 72-hour impulse Gatekeeper.");
+      var root = sectionTitle("Finance", "Monthly budget, recurring costs, spending breakdown, and the 72h Gatekeeper.");
       var month = State.s.month;
       var budget = await DB.getBudget(month);
-      var spent = await DB.sumTransactionsForMonth(month);
+      var txns = await DB.listTransactionsByMonth(month);
+      var recurringItems = await DB.listRecurring();
+      var oneOffSpent = await DB.sumTransactionsForMonth(month);
+      var recurringSpent = await DB.sumRecurring();
+      var spent = oneOffSpent + recurringSpent;
       var remaining = budget - spent;
 
       // Overview
@@ -1362,14 +1485,29 @@
         ? ("Remaining: " + formatMoney(remaining) + " / " + formatMoney(budget))
         : "No budget set";
       overview.appendChild(pill);
-      if (budget > 0) {
-        overview.appendChild(spacer(10));
-        var sub = document.createElement("div");
-        sub.className = "p";
-        sub.textContent = "Spent this month: " + formatMoney(spent);
-        overview.appendChild(sub);
-      }
+      overview.appendChild(spacer(10));
+      var sub = document.createElement("div");
+      sub.className = "p";
+      sub.textContent = "Spent this month: " + formatMoney(spent)
+        + " (recurring " + formatMoney(recurringSpent) + ")";
+      overview.appendChild(sub);
       root.appendChild(overview);
+
+      // Spending breakdown (pie chart)
+      var slices = buildExpenseSlices(txns, recurringItems);
+      var chartCard = document.createElement("div");
+      chartCard.className = "glass card";
+      chartCard.appendChild(textLine("Spending Breakdown", month));
+      chartCard.appendChild(spacer(12));
+      if (!slices.length) {
+        var cp = document.createElement("div");
+        cp.className = "p";
+        cp.textContent = "Add an expense or a recurring cost to see your breakdown.";
+        chartCard.appendChild(cp);
+      } else {
+        chartCard.appendChild(pieChart(slices));
+      }
+      root.appendChild(chartCard);
 
       // Set budget
       var budgetCard = document.createElement("div");
@@ -1412,7 +1550,6 @@
       };
       expCard.appendChild(addE);
 
-      var txns = await DB.listTransactionsByMonth(month);
       if (txns.length) {
         expCard.appendChild(spacer(12));
         var hrx = document.createElement("hr");
@@ -1448,6 +1585,70 @@
         expCard.appendChild(tl);
       }
       root.appendChild(expCard);
+
+      // Recurring monthly expenses
+      var recCard = document.createElement("div");
+      recCard.className = "glass card";
+      recCard.appendChild(textLine("Recurring Expenses", "Charged every month"));
+      recCard.appendChild(spacer(8));
+      var recInfo = document.createElement("div");
+      recInfo.className = "p";
+      recInfo.textContent = "Fixed monthly costs (rent, subscriptions…) count automatically toward every month’s budget.";
+      recCard.appendChild(recInfo);
+      recCard.appendChild(spacer(10));
+      var recName = makeInput("text", "", "e.g., Rent");
+      var recAmt = makeInput("number", "", "0.00", { min: "0", step: "0.01" });
+      recCard.appendChild(fieldWrap("Name", recName));
+      recCard.appendChild(fieldWrap("Amount (€) / month", recAmt));
+      recCard.appendChild(spacer(12));
+      var addR = document.createElement("button");
+      addR.className = "btnGhost";
+      addR.type = "button";
+      addR.textContent = "Add Recurring";
+      addR.onclick = async function () {
+        try {
+          await DB.addRecurring(recName.value, recAmt.value);
+          toast("Recurring expense added.");
+          Router.render();
+        } catch (e) { toast(e && e.message ? e.message : "Add failed."); }
+      };
+      recCard.appendChild(addR);
+
+      if (recurringItems.length) {
+        recCard.appendChild(spacer(12));
+        var hrr = document.createElement("hr");
+        hrr.className = "hr";
+        recCard.appendChild(hrr);
+        var rl = document.createElement("div");
+        rl.className = "list";
+        recurringItems.forEach(function (rc) {
+          var it = document.createElement("div");
+          it.className = "item";
+          var left = document.createElement("div");
+          var k = document.createElement("div");
+          k.className = "k";
+          k.textContent = formatMoney(rc.amount) + " / month";
+          var m = document.createElement("div");
+          m.className = "m";
+          m.textContent = rc.name;
+          left.appendChild(k);
+          left.appendChild(m);
+          var del = document.createElement("button");
+          del.className = "btnGhost";
+          del.type = "button";
+          del.textContent = "Delete";
+          del.onclick = async function () {
+            await DB.deleteRecurring(rc.id);
+            toast("Recurring expense removed.");
+            Router.render();
+          };
+          it.appendChild(left);
+          it.appendChild(del);
+          rl.appendChild(it);
+        });
+        recCard.appendChild(rl);
+      }
+      root.appendChild(recCard);
 
       // Gatekeeper
       var gateCard = document.createElement("div");
