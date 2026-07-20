@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.2";
+  var APP_VERSION = "1.0.3";
 
   function $(id) { return document.getElementById(id); }
 

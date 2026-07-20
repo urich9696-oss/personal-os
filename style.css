@@ -27,14 +27,6 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-@font-face {
-  font-family: "Instrument Sans";
-  src: url("./assets/fonts/InstrumentSans-Variable.woff2") format("woff2");
-  font-display: swap;
-  font-weight: 100 900;
-  font-style: normal;
-}
-
 *{ box-sizing: border-box; }
 html, body{ height: 100%; }
 body{
