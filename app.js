@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.7";
+  var APP_VERSION = "1.0.8";
 
   function $(id) { return document.getElementById(id); }
 
@@ -50,36 +50,173 @@
   }
   function localeTag() { return effectiveLang() === "de" ? "de-DE" : "en-US"; }
 
+  // Module/tile/page NAMES are intentionally NOT translated — only inputs,
+  // instructions, labels, placeholders, buttons and messages are localized.
   var I18N = {
     de: {
-      "Path": "Pfad",
-      "Alignment": "Ausrichtung",
-      "Maintenance": "Wartung",
-      "Finance": "Finanzen",
-      "Vault": "Tresor",
-      "Settings": "Einstellungen",
+      // Dashboard chrome
       "Modules": "Module",
       "Current Focus": "Aktueller Fokus",
       "Relevant Insights": "Relevante Hinweise",
       "Priority": "Priorität",
       "Next": "Nächstes",
       "Budget": "Budget",
+
+      // Module subtitles / instructions
+      "Plan your day in time blocks. Load a template to start fast.": "Plane deinen Tag in Zeitblöcken. Lade eine Vorlage für einen schnellen Start.",
+      "Reflect and realign — Morning and Evening flows.": "Reflektieren und neu ausrichten — Morgen- und Abend-Flow.",
+      "Habits and Daily Tasks. Check them off — this feeds your Performance score.": "Gewohnheiten und Tagesaufgaben. Hake sie ab — das speist deinen Leistungs-Score.",
+      "Monthly budget, recurring costs, spending breakdown, and the 72h Gatekeeper.": "Monatsbudget, wiederkehrende Kosten, Ausgabenübersicht und der 72h-Türsteher.",
+      "Your immutable archive of closed days.": "Dein unveränderliches Archiv abgeschlossener Tage.",
+      "Back up, restore, and reset your PERSONAL OS.": "Sichern, Wiederherstellen und Zurücksetzen deines PERSONAL OS.",
+
+      // Section labels (card headers) + metas
+      "Performance": "Leistung",
+      "Today": "Heute",
+      "Add Items": "Einträge hinzufügen",
+      "Create your system": "Baue dein System",
+      "Today Checklist": "Heutige Checkliste",
+      "Tap to toggle": "Zum Umschalten tippen",
+      "Manage Items": "Einträge verwalten",
+      "Deactivate without deleting": "Deaktivieren ohne Löschen",
+      "Today’s Blocks": "Heutige Blöcke",
+      "Add Block": "Block hinzufügen",
+      "Time-boxed focus": "Fokus in Zeitblöcken",
+      "Templates": "Vorlagen",
+      "One-tap day plans": "Tagespläne mit einem Tipp",
+      "Spending Breakdown": "Ausgabenübersicht",
+      "Set Monthly Budget": "Monatsbudget festlegen",
+      "Add Expense": "Ausgabe hinzufügen",
+      "Track your spending": "Behalte deine Ausgaben im Blick",
+      "Recurring Expenses": "Wiederkehrende Ausgaben",
+      "Charged every month": "Wird jeden Monat berechnet",
+      "72h Gatekeeper": "72h-Türsteher",
+      "Beat impulse purchases": "Impulskäufe verhindern",
+      "Morning Flow": "Morgen-Flow",
+      "Evening Flow": "Abend-Flow",
+      "Closed Days": "Abgeschlossene Tage",
+      "Read-only": "Nur Lesen",
       "Preferences": "Präferenzen",
       "Regional & display": "Region & Anzeige",
+      "Export Data": "Daten exportieren",
+      "Download a JSON backup": "JSON-Sicherung herunterladen",
+      "Import Data": "Daten importieren",
+      "Restore from a backup file": "Aus einer Sicherungsdatei wiederherstellen",
+      "Danger Zone": "Gefahrenzone",
+      "Erase all data": "Alle Daten löschen",
+      "About": "Über",
+
+      // Field labels
+      "New Habit": "Neue Gewohnheit",
+      "New Daily Task": "Neue Tagesaufgabe",
+      "Category": "Kategorie",
+      "Primary Focus": "Hauptfokus",
+      "Gratitude": "Dankbarkeit",
+      "Intention": "Absicht",
+      "Wins": "Erfolge",
+      "Lessons": "Lektionen",
+      "Master Question 1": "Meisterfrage 1",
+      "Master Question 2": "Meisterfrage 2",
+      "Master Question 3": "Meisterfrage 3",
+      "Master Question 4": "Meisterfrage 4",
+      "Title": "Titel",
+      "Start": "Start",
+      "End": "Ende",
+      "Save today as template": "Heute als Vorlage speichern",
+      "Amount": "Betrag",
+      "Amount / month": "Betrag / Monat",
+      "Note": "Notiz",
+      "Item": "Artikel",
+      "Name": "Name",
+      "Backup file": "Sicherungsdatei",
+      "Confirmation": "Bestätigung",
       "Currency": "Währung",
       "Language": "Sprache",
       "Measurement system": "Maßsystem",
       "Applies to unit-based values as they are added.": "Gilt für einheitenbasierte Werte, sobald sie hinzukommen.",
+
+      // Placeholders
+      "e.g., Deep Work": "z. B. Konzentriertes Arbeiten",
+      "Template name (e.g., Workday)": "Vorlagenname (z. B. Arbeitstag)",
+      "e.g., Groceries": "z. B. Lebensmittel",
+      "e.g., Rent": "z. B. Miete",
+      "e.g., New headphones": "z. B. Neue Kopfhörer",
+      "Type RESET to confirm": "Zum Bestätigen RESET eingeben",
+      "What matters most today?": "Was ist heute am wichtigsten?",
+      "Write 3 things you’re grateful for.": "Schreibe 3 Dinge auf, für die du dankbar bist.",
+      "Who do you choose to be today?": "Wer möchtest du heute sein?",
+      "What went well today?": "Was lief heute gut?",
+      "What did you learn today?": "Was hast du heute gelernt?",
+
+      // Buttons
+      "Add Habit": "Gewohnheit hinzufügen",
+      "Add Task": "Aufgabe hinzufügen",
+      "Save Morning": "Morgen speichern",
+      "Save Evening": "Abend speichern",
+      "Close Day to Vault": "Tag im Tresor abschließen",
+      "Start Morning Flow": "Morgen-Flow starten",
+      "Start Evening Flow": "Abend-Flow starten",
+      "Back to Vault List": "Zurück zur Tresor-Liste",
+      "Remove": "Entfernen",
+      "Delete": "Löschen",
+      "Load": "Laden",
+      "Save Template": "Vorlage speichern",
+      "Create ‘Workday’ template": "Vorlage „Arbeitstag“ erstellen",
+      "Save Budget": "Budget speichern",
+      "Lock for 72h": "Für 72h sperren",
+      "Approve": "Genehmigen",
+      "Let it go": "Loslassen",
+      "Cancel": "Abbrechen",
+      "Add Recurring": "Wiederkehrend hinzufügen",
+      "Export Backup": "Sicherung exportieren",
+      "Import & Merge": "Importieren & zusammenführen",
+      "Reset PERSONAL OS": "PERSONAL OS zurücksetzen",
+      "Reload": "Neu laden",
+
+      // Toasts / messages
       "Preferences saved.": "Einstellungen gespeichert.",
-      "Export Data": "Daten exportieren",
-      "Import Data": "Daten importieren",
-      "Danger Zone": "Gefahrenzone",
-      "About": "Über",
-      "Back up, restore, and reset your PERSONAL OS.": "Sichern, Wiederherstellen und Zurücksetzen deines PERSONAL OS."
+      "Habit added.": "Gewohnheit hinzugefügt.",
+      "Task added.": "Aufgabe hinzugefügt.",
+      "Block added.": "Block hinzugefügt.",
+      "Block removed.": "Block entfernt.",
+      "Expense added.": "Ausgabe hinzugefügt.",
+      "Expense removed.": "Ausgabe entfernt.",
+      "Recurring expense added.": "Wiederkehrende Ausgabe hinzugefügt.",
+      "Recurring expense removed.": "Wiederkehrende Ausgabe entfernt.",
+      "Budget saved.": "Budget gespeichert.",
+      "Locked for 72 hours.": "Für 72 Stunden gesperrt.",
+      "Approved & logged as expense.": "Genehmigt & als Ausgabe verbucht.",
+      "Released. Money saved.": "Losgelassen. Geld gespart.",
+      "Cancelled.": "Abgebrochen.",
+      "Template saved.": "Vorlage gespeichert.",
+      "Template deleted.": "Vorlage gelöscht.",
+      "Workday template created.": "Vorlage „Arbeitstag“ erstellt.",
+      "Morning saved.": "Morgen gespeichert.",
+      "Evening saved.": "Abend gespeichert.",
+      "Day closed to Vault.": "Tag im Tresor abgeschlossen.",
+      "Checked.": "Abgehakt.",
+      "Unchecked.": "Abwahl aufgehoben.",
+      "Update failed.": "Aktualisierung fehlgeschlagen.",
+      "Add failed.": "Hinzufügen fehlgeschlagen.",
+      "Save failed.": "Speichern fehlgeschlagen.",
+      "Habit name required.": "Name der Gewohnheit erforderlich.",
+      "Task name required.": "Aufgabenname erforderlich.",
+      "Backup exported.": "Sicherung exportiert.",
+      "Choose a file first.": "Wähle zuerst eine Datei.",
+      "Could not read file.": "Datei konnte nicht gelesen werden.",
+      "Invalid backup file.": "Ungültige Sicherungsdatei.",
+      "All data cleared.": "Alle Daten gelöscht.",
+      "Type RESET to confirm.": "Zum Bestätigen RESET eingeben.",
+      "Vault is immutable. Today is already closed.": "Der Tresor ist unveränderlich. Heute ist bereits abgeschlossen.",
+      "Export failed.": "Export fehlgeschlagen.",
+      "Reset failed.": "Zurücksetzen fehlgeschlagen.",
+      "Nothing archived yet": "Noch nichts archiviert",
+      "No budget set": "Kein Budget festgelegt"
     }
   };
 
-  function t(s) {
+  function tr(s) {
+    if (s == null) return s;
     if (effectiveLang() === "de" && I18N.de[s]) return I18N.de[s];
     return s;
   }
@@ -140,7 +277,7 @@
   function toast(msg) {
     var el = $("toast");
     if (!el) return;
-    el.textContent = msg;
+    el.textContent = tr(msg);
     el.classList.add("is-show");
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.classList.remove("is-show"); }, 2200);
@@ -458,13 +595,13 @@
     var t = document.createElement("div");
     t.style.fontWeight = "820";
     t.style.letterSpacing = ".2px";
-    t.textContent = title;
+    t.textContent = tr(title);
 
     var m = document.createElement("div");
     m.style.color = "rgba(18,18,18,.55)";
     m.style.fontSize = "12px";
     m.style.fontWeight = "700";
-    m.textContent = meta;
+    m.textContent = tr(meta);
 
     wrap.appendChild(t);
     wrap.appendChild(m);
@@ -479,11 +616,11 @@
 
     var t = document.createElement("div");
     t.className = "h1";
-    t.textContent = title;
+    t.textContent = title; // module/page name — never translated
 
     var p = document.createElement("div");
     p.className = "p";
-    p.textContent = subtitle;
+    p.textContent = tr(subtitle);
 
     h.appendChild(t);
     h.appendChild(p);
@@ -510,12 +647,12 @@
     var wrap = document.createElement("div");
     var l = document.createElement("div");
     l.className = "label";
-    l.textContent = label;
+    l.textContent = tr(label);
 
     var t = document.createElement("textarea");
     t.className = "input textarea";
     t.value = value || "";
-    t.placeholder = placeholder || "";
+    t.placeholder = tr(placeholder || "");
 
     wrap.appendChild(l);
     wrap.appendChild(t);
@@ -526,13 +663,13 @@
     var wrap = document.createElement("div");
     var l = document.createElement("div");
     l.className = "label";
-    l.textContent = label;
+    l.textContent = tr(label);
 
     var i = document.createElement("input");
     i.className = "input";
     i.type = "text";
     i.value = value || "";
-    i.placeholder = placeholder || "";
+    i.placeholder = tr(placeholder || "");
 
     wrap.appendChild(l);
     wrap.appendChild(i);
@@ -555,7 +692,7 @@
     var wrap = document.createElement("div");
     var l = document.createElement("div");
     l.className = "label";
-    l.textContent = labelText;
+    l.textContent = tr(labelText);
     wrap.appendChild(l);
     wrap.appendChild(el);
     return wrap;
@@ -628,7 +765,7 @@
       path: "Path", alignment: "Alignment", maintenance: "Maintenance",
       finance: "Finance", vault: "Vault", settings: "Settings"
     };
-    return map[route] ? t(map[route]) : "PERSONAL OS";
+    return map[route] || "PERSONAL OS";
   }
 
   function goBack() {
@@ -649,7 +786,7 @@
       brand.className = "appheader__brand";
       var name = document.createElement("div");
       name.className = "appheader__name";
-      name.textContent = "PERSONAL OS";
+      name.textContent = tr("PERSONAL OS");
       var sub = document.createElement("div");
       sub.className = "appheader__sub";
       sub.textContent = formatNiceDate(new Date());
@@ -1008,10 +1145,10 @@
       lead.textContent = "Today · " + formatNiceDate(nowD);
       var headline = document.createElement("div");
       headline.className = "statuscard__headline";
-      if (perf.total && remainingItems > 0) headline.textContent = "Keep your system on track";
+      if (perf.total && remainingItems > 0) headline.textContent = tr("Keep your system on track");
       else if (nextBlock) headline.textContent = "Next: " + nextBlock.title;
-      else if (!mJournal) headline.textContent = "Begin with your morning journal";
-      else headline.textContent = "You’re aligned for today";
+      else if (!mJournal) headline.textContent = tr("Begin with your morning journal");
+      else headline.textContent = tr("You’re aligned for today");
       status.appendChild(lead);
       status.appendChild(headline);
 
@@ -1030,41 +1167,41 @@
         r.appendChild(v);
         return r;
       }
-      rows.appendChild(statusRow(t("Priority"), perf.total
+      rows.appendChild(statusRow(tr("Priority"), perf.total
         ? (perf.done + "/" + perf.total + " done today")
         : "Set up Maintenance"));
-      rows.appendChild(statusRow(t("Next"), nextText));
-      rows.appendChild(statusRow(t("Budget"), budgetText));
+      rows.appendChild(statusRow(tr("Next"), nextText));
+      rows.appendChild(statusRow(tr("Budget"), budgetText));
       status.appendChild(rows);
       root.appendChild(status);
 
       // ---- Primary modules ----
       var modSection = document.createElement("div");
       modSection.className = "dash__section";
-      modSection.appendChild(sectionHeader(t("Modules")));
+      modSection.appendChild(sectionHeader(tr("Modules")));
       var grid = document.createElement("div");
       grid.className = "tilegrid";
 
       grid.appendChild(moduleTile({
-        route: "path", icon: "path", name: t("Path"), wide: true,
+        route: "path", icon: "path", name: "Path", wide: true,
         status: nextText
       }));
       grid.appendChild(moduleTile({
-        route: "alignment", icon: "alignment", name: t("Alignment"),
+        route: "alignment", icon: "alignment", name: "Alignment",
         status: alignText
       }));
       grid.appendChild(moduleTile({
-        route: "maintenance", icon: "maintenance", name: t("Maintenance"),
+        route: "maintenance", icon: "maintenance", name: "Maintenance",
         status: perf.total ? (perf.done + "/" + perf.total + " today") : "No items yet",
         progress: perf.total ? perf.score : 0
       }));
       grid.appendChild(moduleTile({
-        route: "finance", icon: "finance", name: t("Finance"),
+        route: "finance", icon: "finance", name: "Finance",
         status: budgetText,
         progress: budget > 0 ? Math.min(100, spentPct) : 0
       }));
       grid.appendChild(moduleTile({
-        route: "vault", icon: "vault", name: t("Vault"),
+        route: "vault", icon: "vault", name: "Vault",
         status: vaultText
       }));
       modSection.appendChild(grid);
@@ -1073,7 +1210,7 @@
       // ---- Current focus ----
       var focusSection = document.createElement("div");
       focusSection.className = "dash__section";
-      focusSection.appendChild(sectionHeader(t("Current Focus")));
+      focusSection.appendChild(sectionHeader(tr("Current Focus")));
       var focusCard = document.createElement("div");
       focusCard.className = "glass card";
       focusCard.appendChild(textLine(nextBlock ? nextBlock.title : "Daily performance",
@@ -1090,7 +1227,7 @@
       // ---- Relevant insights ----
       var insightsSection = document.createElement("div");
       insightsSection.className = "dash__section";
-      insightsSection.appendChild(sectionHeader(t("Relevant Insights")));
+      insightsSection.appendChild(sectionHeader(tr("Relevant Insights")));
       var insWrap = document.createElement("div");
       insWrap.className = "list";
       var insCount = 0;
@@ -1124,7 +1261,7 @@
       var setGrid = document.createElement("div");
       setGrid.className = "tilegrid";
       setGrid.appendChild(moduleTile({
-        route: "settings", icon: "settings", name: t("Settings"), wide: true, muted: true,
+        route: "settings", icon: "settings", name: "Settings", wide: true, muted: true,
         status: "Backup, restore, preferences"
       }));
       root.appendChild(setGrid);
@@ -1136,7 +1273,7 @@
       var mode = (params && params.get("mode")) ? params.get("mode") : "morning";
       if (mode !== "morning" && mode !== "evening" && mode !== "choose") mode = "morning";
 
-      var root = sectionTitle(t("Alignment"), "Reflect and realign — Morning and Evening flows.");
+      var root = sectionTitle("Alignment", "Reflect and realign — Morning and Evening flows.");
 
       var seg = segmented(
         mode === "choose" ? "morning" : mode,
@@ -1161,7 +1298,7 @@
     }
 
     async function vault(container, params) {
-      var root = sectionTitle(t("Vault"), "Your immutable archive of closed days.");
+      var root = sectionTitle("Vault", "Your immutable archive of closed days.");
       await renderVault(root, params);
       container.appendChild(root);
     }
@@ -1171,20 +1308,20 @@
       card.className = "glass card";
       var p = document.createElement("div");
       p.className = "p";
-      p.textContent = "Choose your journaling flow for today.";
+      p.textContent = tr("Choose your journaling flow for today.");
       card.appendChild(p);
       card.appendChild(spacer(12));
 
       var b1 = document.createElement("button");
       b1.className = "btnGhost";
       b1.type = "button";
-      b1.textContent = "Start Morning Flow";
+      b1.textContent = tr("Start Morning Flow");
       b1.onclick = function () { Router.go("alignment", { mode: "morning" }); };
 
       var b2 = document.createElement("button");
       b2.className = "btnGhost";
       b2.type = "button";
-      b2.textContent = "Start Evening Flow";
+      b2.textContent = tr("Start Evening Flow");
       b2.style.marginLeft = "10px";
       b2.onclick = function () { Router.go("alignment", { mode: "evening" }); };
 
@@ -1214,7 +1351,7 @@
       var save = document.createElement("button");
       save.className = "btnPrimary";
       save.type = "button";
-      save.textContent = "Save Morning";
+      save.textContent = tr("Save Morning");
       save.onclick = async function () {
         try {
           await State.saveMorning({
@@ -1268,7 +1405,7 @@
       var save = document.createElement("button");
       save.className = "btnPrimary";
       save.type = "button";
-      save.textContent = "Save Evening";
+      save.textContent = tr("Save Evening");
       save.onclick = async function () {
         try {
           await State.saveEvening({
@@ -1286,7 +1423,7 @@
       var close = document.createElement("button");
       close.className = "btnGhost";
       close.type = "button";
-      close.textContent = "Close Day to Vault";
+      close.textContent = tr("Close Day to Vault");
       close.onclick = async function () {
         try {
           await State.saveEvening({
@@ -1331,7 +1468,7 @@
         if (!detail) {
           var p = document.createElement("div");
           p.className = "p";
-          p.textContent = "Snapshot not found.";
+          p.textContent = tr("Snapshot not found.");
           card.appendChild(p);
         } else {
           var meta = document.createElement("div");
@@ -1355,7 +1492,7 @@
           var back = document.createElement("button");
           back.className = "btnGhost";
           back.type = "button";
-          back.textContent = "Back to Vault List";
+          back.textContent = tr("Back to Vault List");
           back.onclick = function () { Router.go("vault"); };
           card.appendChild(back);
         }
@@ -1367,7 +1504,7 @@
       if (!list.length) {
         var p0 = document.createElement("div");
         p0.className = "p";
-        p0.textContent = "No archived days yet. Use Evening Flow → Close Day to Vault.";
+        p0.textContent = tr("No archived days yet. Use Evening Flow → Close Day to Vault.");
         card.appendChild(p0);
         container.appendChild(card);
         return;
@@ -1389,7 +1526,7 @@
           var m = document.createElement("div");
           m.className = "m";
           try { m.textContent = new Date(row.closedAt).toLocaleString("en-US", { hour: "2-digit", minute: "2-digit" }); }
-          catch (e) { m.textContent = "Closed"; }
+          catch (e) { m.textContent = tr("Closed"); }
 
           left.appendChild(k);
           left.appendChild(m);
@@ -1397,7 +1534,7 @@
           var che = document.createElement("div");
           che.style.opacity = ".55";
           che.style.fontWeight = "900";
-          che.textContent = "›";
+          che.textContent = tr("›");
 
           it.appendChild(left);
           it.appendChild(che);
@@ -1421,13 +1558,13 @@
       var t = document.createElement("div");
       t.style.fontWeight = "860";
       t.style.marginBottom = "8px";
-      t.textContent = "Maintenance";
+      t.textContent = tr("Maintenance");
       box.appendChild(t);
 
       if (!mt) {
         var p = document.createElement("div");
         p.className = "p";
-        p.textContent = "No maintenance snapshot.";
+        p.textContent = tr("No maintenance snapshot.");
         box.appendChild(p);
         return box;
       }
@@ -1455,7 +1592,7 @@
       if (!obj) {
         var p = document.createElement("div");
         p.className = "p";
-        p.textContent = "No entry.";
+        p.textContent = tr("No entry.");
         box.appendChild(p);
         return box;
       }
@@ -1483,7 +1620,7 @@
 
     async function maintenance(container) {
       await State.loadMaintenance();
-      var root = sectionTitle(t("Maintenance"), "Habits and Daily Tasks. Check them off — this feeds your Performance score.");
+      var root = sectionTitle("Maintenance", "Habits and Daily Tasks. Check them off — this feeds your Performance score.");
 
       // Score card
       var perf = State.s.perf;
@@ -1506,7 +1643,7 @@
       var addHabitBtn = document.createElement("button");
       addHabitBtn.className = "btnGhost";
       addHabitBtn.type = "button";
-      addHabitBtn.textContent = "Add Habit";
+      addHabitBtn.textContent = tr("Add Habit");
       addHabitBtn.onclick = async function () {
         try {
           await State.addHabit(habitName.input.value);
@@ -1525,7 +1662,7 @@
       var addTaskBtn = document.createElement("button");
       addTaskBtn.className = "btnGhost";
       addTaskBtn.type = "button";
-      addTaskBtn.textContent = "Add Task";
+      addTaskBtn.textContent = tr("Add Task");
       addTaskBtn.onclick = async function () {
         try {
           await State.addTask(taskName.input.value, taskCat.input.value);
@@ -1556,7 +1693,7 @@
       if (!habits.length && !tasks.length) {
         var p0 = document.createElement("div");
         p0.className = "p";
-        p0.textContent = "Add at least one Habit or Task to start tracking Performance.";
+        p0.textContent = tr("Add at least one Habit or Task to start tracking Performance.");
         listCard.appendChild(p0);
       } else {
         for (var i = 0; i < habits.length; i++) {
@@ -1585,7 +1722,7 @@
       if (!allHabits.length && !allTasks.length) {
         var p1 = document.createElement("div");
         p1.className = "p";
-        p1.textContent = "Nothing to manage yet.";
+        p1.textContent = tr("Nothing to manage yet.");
         manage.appendChild(p1);
       } else {
         for (var a = 0; a < allHabits.length; a++) {
@@ -1694,7 +1831,7 @@
       if (!blocks.length) {
         var p0 = document.createElement("div");
         p0.className = "p";
-        p0.textContent = "No time blocks yet. Add one below or load a template.";
+        p0.textContent = tr("No time blocks yet. Add one below or load a template.");
         listCard.appendChild(p0);
       } else {
         var list = document.createElement("div");
@@ -1714,7 +1851,7 @@
           var del = document.createElement("button");
           del.className = "btnGhost";
           del.type = "button";
-          del.textContent = "Remove";
+          del.textContent = tr("Remove");
           del.onclick = async function () {
             await DB.deleteBlock(b.id);
             toast("Block removed.");
@@ -1745,7 +1882,7 @@
       var addBtn = document.createElement("button");
       addBtn.className = "btnPrimary";
       addBtn.type = "button";
-      addBtn.textContent = "Add Block";
+      addBtn.textContent = tr("Add Block");
       addBtn.onclick = async function () {
         try {
           await DB.addBlock(today, startI.value, endI.value, titleI.value);
@@ -1766,13 +1903,13 @@
       if (!templates.length) {
         var pt = document.createElement("div");
         pt.className = "p";
-        pt.textContent = "No templates yet. Create the sample Workday, or save today’s blocks below.";
+        pt.textContent = tr("No templates yet. Create the sample Workday, or save today’s blocks below.");
         tplCard.appendChild(pt);
         tplCard.appendChild(spacer(10));
         var seed = document.createElement("button");
         seed.className = "btnGhost";
         seed.type = "button";
-        seed.textContent = "Create ‘Workday’ template";
+        seed.textContent = tr("Create ‘Workday’ template");
         seed.onclick = async function () {
           await DB.addTemplate("Workday", [
             { start: "07:00", end: "08:00", title: "Morning Routine" },
@@ -1804,7 +1941,7 @@
           var load = document.createElement("button");
           load.className = "btnGhost";
           load.type = "button";
-          load.textContent = "Load";
+          load.textContent = tr("Load");
           load.onclick = async function () {
             var n = await DB.applyTemplateToDay(t.id, today);
             toast("Loaded " + n + " blocks.");
@@ -1813,7 +1950,7 @@
           var del = document.createElement("button");
           del.className = "btnGhost";
           del.type = "button";
-          del.textContent = "Delete";
+          del.textContent = tr("Delete");
           del.style.marginLeft = "8px";
           del.onclick = async function () {
             await DB.deleteTemplate(t.id);
@@ -1840,7 +1977,7 @@
         var saveTpl = document.createElement("button");
         saveTpl.className = "btnGhost";
         saveTpl.type = "button";
-        saveTpl.textContent = "Save Template";
+        saveTpl.textContent = tr("Save Template");
         saveTpl.onclick = async function () {
           try {
             var tb = blocks.map(function (b) { return { start: b.start, end: b.end, title: b.title }; });
@@ -1857,7 +1994,7 @@
     }
 
     async function finance(container) {
-      var root = sectionTitle(t("Finance"), "Monthly budget, recurring costs, spending breakdown, and the 72h Gatekeeper.");
+      var root = sectionTitle("Finance", "Monthly budget, recurring costs, spending breakdown, and the 72h Gatekeeper.");
       var month = State.s.month;
       var budget = await DB.getBudget(month);
       var txns = await DB.listTransactionsByMonth(month);
@@ -1895,7 +2032,7 @@
       if (!slices.length) {
         var cp = document.createElement("div");
         cp.className = "p";
-        cp.textContent = "Add an expense or a recurring cost to see your breakdown.";
+        cp.textContent = tr("Add an expense or a recurring cost to see your breakdown.");
         chartCard.appendChild(cp);
       } else {
         chartCard.appendChild(pieChart(slices));
@@ -1907,12 +2044,12 @@
       budgetCard.className = "glass card";
       budgetCard.appendChild(textLine("Set Monthly Budget", "Applies to " + month));
       var budgetI = makeInput("number", budget > 0 ? String(budget) : "", "e.g., 1500", { min: "0", step: "1" });
-      budgetCard.appendChild(fieldWrap("Amount (€)", budgetI));
+      budgetCard.appendChild(fieldWrap("Amount", budgetI));
       budgetCard.appendChild(spacer(12));
       var saveB = document.createElement("button");
       saveB.className = "btnPrimary";
       saveB.type = "button";
-      saveB.textContent = "Save Budget";
+      saveB.textContent = tr("Save Budget");
       saveB.onclick = async function () {
         await DB.setBudget(month, budgetI.value);
         toast("Budget saved.");
@@ -1927,13 +2064,13 @@
       expCard.appendChild(textLine("Add Expense", "Track your spending"));
       var amtI = makeInput("number", "", "0.00", { min: "0", step: "0.01" });
       var noteI = makeInput("text", "", "e.g., Groceries");
-      expCard.appendChild(fieldWrap("Amount (€)", amtI));
+      expCard.appendChild(fieldWrap("Amount", amtI));
       expCard.appendChild(fieldWrap("Note", noteI));
       expCard.appendChild(spacer(12));
       var addE = document.createElement("button");
       addE.className = "btnGhost";
       addE.type = "button";
-      addE.textContent = "Add Expense";
+      addE.textContent = tr("Add Expense");
       addE.onclick = async function () {
         try {
           await DB.addTransaction(month, amtI.value, noteI.value);
@@ -1965,7 +2102,7 @@
           var del = document.createElement("button");
           del.className = "btnGhost";
           del.type = "button";
-          del.textContent = "Delete";
+          del.textContent = tr("Delete");
           del.onclick = async function () {
             await DB.deleteTransaction(t.id);
             toast("Expense removed.");
@@ -1986,18 +2123,18 @@
       recCard.appendChild(spacer(8));
       var recInfo = document.createElement("div");
       recInfo.className = "p";
-      recInfo.textContent = "Fixed monthly costs (rent, subscriptions…) count automatically toward every month’s budget.";
+      recInfo.textContent = tr("Fixed monthly costs (rent, subscriptions…) count automatically toward every month’s budget.");
       recCard.appendChild(recInfo);
       recCard.appendChild(spacer(10));
       var recName = makeInput("text", "", "e.g., Rent");
       var recAmt = makeInput("number", "", "0.00", { min: "0", step: "0.01" });
       recCard.appendChild(fieldWrap("Name", recName));
-      recCard.appendChild(fieldWrap("Amount (€) / month", recAmt));
+      recCard.appendChild(fieldWrap("Amount / month", recAmt));
       recCard.appendChild(spacer(12));
       var addR = document.createElement("button");
       addR.className = "btnGhost";
       addR.type = "button";
-      addR.textContent = "Add Recurring";
+      addR.textContent = tr("Add Recurring");
       addR.onclick = async function () {
         try {
           await DB.addRecurring(recName.value, recAmt.value);
@@ -2029,7 +2166,7 @@
           var del = document.createElement("button");
           del.className = "btnGhost";
           del.type = "button";
-          del.textContent = "Delete";
+          del.textContent = tr("Delete");
           del.onclick = async function () {
             await DB.deleteRecurring(rc.id);
             toast("Recurring expense removed.");
@@ -2050,18 +2187,18 @@
       gateCard.appendChild(spacer(8));
       var gp = document.createElement("div");
       gp.className = "p";
-      gp.textContent = "Add something you want to buy. It stays locked for 72 hours before you can approve it.";
+      gp.textContent = tr("Add something you want to buy. It stays locked for 72 hours before you can approve it.");
       gateCard.appendChild(gp);
       gateCard.appendChild(spacer(10));
       var gItem = makeInput("text", "", "e.g., New headphones");
       var gAmt = makeInput("number", "", "0.00", { min: "0", step: "0.01" });
       gateCard.appendChild(fieldWrap("Item", gItem));
-      gateCard.appendChild(fieldWrap("Amount (€)", gAmt));
+      gateCard.appendChild(fieldWrap("Amount", gAmt));
       gateCard.appendChild(spacer(12));
       var addG = document.createElement("button");
       addG.className = "btnGhost";
       addG.type = "button";
-      addG.textContent = "Lock for 72h";
+      addG.textContent = tr("Lock for 72h");
       addG.onclick = async function () {
         try {
           await DB.addGate(gItem.value, gAmt.value, 72);
@@ -2093,11 +2230,11 @@
           var now = Date.now();
 
           if (now >= g.unlockAt) {
-            meta.textContent = "Unlocked — decide now";
+            meta.textContent = tr("Unlocked — decide now");
             var ok = document.createElement("button");
             ok.className = "btnGhost";
             ok.type = "button";
-            ok.textContent = "Approve";
+            ok.textContent = tr("Approve");
             ok.onclick = async function () {
               await DB.addTransaction(month, g.amount, "Gatekeeper: " + g.item);
               await DB.deleteGate(g.id);
@@ -2107,7 +2244,7 @@
             var no = document.createElement("button");
             no.className = "btnGhost";
             no.type = "button";
-            no.textContent = "Let it go";
+            no.textContent = tr("Let it go");
             no.style.marginLeft = "8px";
             no.onclick = async function () {
               await DB.deleteGate(g.id);
@@ -2125,7 +2262,7 @@
             var cancel = document.createElement("button");
             cancel.className = "btnGhost";
             cancel.type = "button";
-            cancel.textContent = "Cancel";
+            cancel.textContent = tr("Cancel");
             cancel.onclick = async function () {
               await DB.deleteGate(g.id);
               toast("Cancelled.");
@@ -2162,51 +2299,51 @@
     }
 
     async function settings(container) {
-      var root = sectionTitle(t("Settings"), t("Back up, restore, and reset your PERSONAL OS."));
+      var root = sectionTitle("Settings", "Back up, restore, and reset your PERSONAL OS.");
 
       // Preferences (currency / language / measurement)
       var prefCard = document.createElement("div");
       prefCard.className = "glass card";
-      prefCard.appendChild(textLine(t("Preferences"), t("Regional & display")));
-      prefCard.appendChild(fieldWrap(t("Currency"),
+      prefCard.appendChild(textLine("Preferences", "Regional & display"));
+      prefCard.appendChild(fieldWrap("Currency",
         makeSelect(CURRENCIES, Prefs.currency, async function (v) {
           await savePref("currency", v);
-          toast(t("Preferences saved."));
+          toast("Preferences saved.");
           Router.render();
         })));
-      prefCard.appendChild(fieldWrap(t("Language"),
+      prefCard.appendChild(fieldWrap("Language",
         makeSelect(LANGUAGES, Prefs.language, async function (v) {
           await savePref("language", v);
-          toast(t("Preferences saved."));
+          toast("Preferences saved.");
           Router.render();
         })));
-      prefCard.appendChild(fieldWrap(t("Measurement system"),
+      prefCard.appendChild(fieldWrap("Measurement system",
         makeSelect(MEASURES, Prefs.measure, async function (v) {
           await savePref("measure", v);
-          toast(t("Preferences saved."));
+          toast("Preferences saved.");
           Router.render();
         })));
       var measNote = document.createElement("div");
       measNote.className = "p";
       measNote.style.marginTop = "8px";
-      measNote.textContent = t("Applies to unit-based values as they are added.");
+      measNote.textContent = tr("Applies to unit-based values as they are added.");
       prefCard.appendChild(measNote);
       root.appendChild(prefCard);
 
       // Export
       var expCard = document.createElement("div");
       expCard.className = "glass card";
-      expCard.appendChild(textLine(t("Export Data"), "Download a JSON backup"));
+      expCard.appendChild(textLine("Export Data", "Download a JSON backup"));
       expCard.appendChild(spacer(8));
       var ep = document.createElement("div");
       ep.className = "p";
-      ep.textContent = "Save all your journals, habits, tasks, blocks, finances, and locks to a file.";
+      ep.textContent = tr("Save all your journals, habits, tasks, blocks, finances, and locks to a file.");
       expCard.appendChild(ep);
       expCard.appendChild(spacer(12));
       var expBtn = document.createElement("button");
       expBtn.className = "btnPrimary";
       expBtn.type = "button";
-      expBtn.textContent = "Export Backup";
+      expBtn.textContent = tr("Export Backup");
       expBtn.onclick = async function () {
         try {
           var data = await DB.exportAll();
@@ -2228,7 +2365,7 @@
       // Import
       var impCard = document.createElement("div");
       impCard.className = "glass card";
-      impCard.appendChild(textLine(t("Import Data"), "Restore from a backup file"));
+      impCard.appendChild(textLine("Import Data", "Restore from a backup file"));
       impCard.appendChild(spacer(12));
       var fileI = document.createElement("input");
       fileI.type = "file";
@@ -2239,7 +2376,7 @@
       var impBtn = document.createElement("button");
       impBtn.className = "btnGhost";
       impBtn.type = "button";
-      impBtn.textContent = "Import & Merge";
+      impBtn.textContent = tr("Import & Merge");
       impBtn.onclick = function () {
         var f = fileI.files && fileI.files[0];
         if (!f) { toast("Choose a file first."); return; }
@@ -2261,11 +2398,11 @@
       // Danger zone: reset
       var resetCard = document.createElement("div");
       resetCard.className = "glass card";
-      resetCard.appendChild(textLine(t("Danger Zone"), "Erase all data"));
+      resetCard.appendChild(textLine("Danger Zone", "Erase all data"));
       resetCard.appendChild(spacer(8));
       var rp = document.createElement("div");
       rp.className = "p";
-      rp.textContent = "This permanently deletes everything on this device. Export a backup first.";
+      rp.textContent = tr("This permanently deletes everything on this device. Export a backup first.");
       resetCard.appendChild(rp);
       resetCard.appendChild(spacer(12));
       var confI = makeInput("text", "", "Type RESET to confirm");
@@ -2274,7 +2411,7 @@
       var resetBtn = document.createElement("button");
       resetBtn.className = "btnGhost";
       resetBtn.type = "button";
-      resetBtn.textContent = "Reset PERSONAL OS";
+      resetBtn.textContent = tr("Reset PERSONAL OS");
       resetBtn.onclick = async function () {
         if ((confI.value || "").trim().toUpperCase() !== "RESET") {
           toast("Type RESET to confirm.");
@@ -2292,7 +2429,7 @@
       // About
       var infoCard = document.createElement("div");
       infoCard.className = "glass card";
-      infoCard.appendChild(textLine(t("About"), "PERSONAL OS"));
+      infoCard.appendChild(textLine("About", "PERSONAL OS"));
       infoCard.appendChild(spacer(8));
       var v = document.createElement("div");
       v.className = "p";
@@ -2330,7 +2467,7 @@
       var b = document.createElement("button");
       b.className = "btnGhost";
       b.type = "button";
-      b.textContent = "Reload";
+      b.textContent = tr("Reload");
       b.onclick = function () { location.reload(); };
 
       root.appendChild(card);
