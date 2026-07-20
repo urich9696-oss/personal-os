@@ -196,6 +196,7 @@
       "Day closed to Vault.": "Tag im Tresor abgeschlossen.",
       "Checked.": "Abgehakt.",
       "Unchecked.": "Abwahl aufgehoben.",
+      "Updated.": "Aktualisiert.",
       "Update failed.": "Aktualisierung fehlgeschlagen.",
       "Add failed.": "Hinzufügen fehlgeschlagen.",
       "Save failed.": "Speichern fehlgeschlagen.",
