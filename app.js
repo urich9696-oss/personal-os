@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.8";
+  var APP_VERSION = "1.0.9";
 
   function $(id) { return document.getElementById(id); }
 
@@ -1143,7 +1143,7 @@
       status.className = "statuscard";
       var lead = document.createElement("div");
       lead.className = "statuscard__lead";
-      lead.textContent = "Today · " + formatNiceDate(nowD);
+      lead.textContent = tr("Today") + " · " + formatNiceDate(nowD);
       var headline = document.createElement("div");
       headline.className = "statuscard__headline";
       if (perf.total && remainingItems > 0) headline.textContent = tr("Keep your system on track");
