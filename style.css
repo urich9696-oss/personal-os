@@ -257,6 +257,16 @@ button { font-family: inherit; }
 
 .textarea { width: 100%; min-height: 118px; resize: vertical; line-height: 1.5; }
 
+select.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23797979' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  cursor: pointer;
+}
+
 .label {
   display: block;
   font-size: 12px;

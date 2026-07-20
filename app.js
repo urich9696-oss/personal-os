@@ -9,16 +9,106 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.6";
+  var APP_VERSION = "1.0.7";
 
   function $(id) { return document.getElementById(id); }
+
+  // ---------- Preferences (currency / language / measurement) ----------
+  var Prefs = { currency: "EUR", language: "system", measure: "metric" };
+
+  var CURRENCIES = [
+    { code: "EUR", label: "Euro (€)" },
+    { code: "USD", label: "US Dollar ($)" },
+    { code: "GBP", label: "British Pound (£)" },
+    { code: "CHF", label: "Swiss Franc (CHF)" },
+    { code: "JPY", label: "Japanese Yen (¥)" },
+    { code: "CAD", label: "Canadian Dollar (C$)" },
+    { code: "AUD", label: "Australian Dollar (A$)" },
+    { code: "SEK", label: "Swedish Krona (kr)" },
+    { code: "NOK", label: "Norwegian Krone (kr)" },
+    { code: "DKK", label: "Danish Krone (kr)" },
+    { code: "PLN", label: "Polish Złoty (zł)" }
+  ];
+
+  var LANGUAGES = [
+    { code: "system", label: "System default" },
+    { code: "en", label: "English" },
+    { code: "de", label: "Deutsch" }
+  ];
+
+  var MEASURES = [
+    { code: "metric", label: "Metric (km, kg, °C)" },
+    { code: "imperial", label: "Imperial (mi, lb, °F)" }
+  ];
+
+  var PREF_KEYS = { currency: "pref_currency", language: "pref_language", measure: "pref_measure" };
+
+  function effectiveLang() {
+    if (Prefs.language === "de" || Prefs.language === "en") return Prefs.language;
+    var n = ((navigator && navigator.language) || "en").toLowerCase();
+    return n.indexOf("de") === 0 ? "de" : "en";
+  }
+  function localeTag() { return effectiveLang() === "de" ? "de-DE" : "en-US"; }
+
+  var I18N = {
+    de: {
+      "Path": "Pfad",
+      "Alignment": "Ausrichtung",
+      "Maintenance": "Wartung",
+      "Finance": "Finanzen",
+      "Vault": "Tresor",
+      "Settings": "Einstellungen",
+      "Modules": "Module",
+      "Current Focus": "Aktueller Fokus",
+      "Relevant Insights": "Relevante Hinweise",
+      "Priority": "Priorität",
+      "Next": "Nächstes",
+      "Budget": "Budget",
+      "Preferences": "Präferenzen",
+      "Regional & display": "Region & Anzeige",
+      "Currency": "Währung",
+      "Language": "Sprache",
+      "Measurement system": "Maßsystem",
+      "Applies to unit-based values as they are added.": "Gilt für einheitenbasierte Werte, sobald sie hinzukommen.",
+      "Preferences saved.": "Einstellungen gespeichert.",
+      "Export Data": "Daten exportieren",
+      "Import Data": "Daten importieren",
+      "Danger Zone": "Gefahrenzone",
+      "About": "Über",
+      "Back up, restore, and reset your PERSONAL OS.": "Sichern, Wiederherstellen und Zurücksetzen deines PERSONAL OS."
+    }
+  };
+
+  function t(s) {
+    if (effectiveLang() === "de" && I18N.de[s]) return I18N.de[s];
+    return s;
+  }
+
+  function applyLang() {
+    try { document.documentElement.lang = effectiveLang(); } catch (e) {}
+  }
+
+  async function loadPrefs() {
+    try {
+      Prefs.currency = (await DB.metaGet("pref_currency", "EUR")) || "EUR";
+      Prefs.language = (await DB.metaGet("pref_language", "system")) || "system";
+      Prefs.measure = (await DB.metaGet("pref_measure", "metric")) || "metric";
+    } catch (e) {}
+    applyLang();
+  }
+
+  async function savePref(key, value) {
+    Prefs[key] = value;
+    try { await DB.metaSet(PREF_KEYS[key], value); } catch (e) {}
+    applyLang();
+  }
 
   // ---------- Utilities ----------
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
   function dayKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
   function monthKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1); }
   function formatNiceDate(d) {
-    try { return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "2-digit" }).format(d); }
+    try { return new Intl.DateTimeFormat(localeTag(), { weekday: "short", month: "short", day: "2-digit" }).format(d); }
     catch (e) { return dayKey(d); }
   }
 
@@ -474,10 +564,24 @@
   function formatMoney(n) {
     var v = Number(n) || 0;
     try {
-      return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(v);
+      return new Intl.NumberFormat(localeTag(), { style: "currency", currency: Prefs.currency || "EUR" }).format(v);
     } catch (e) {
-      return v.toFixed(2) + " €";
+      return v.toFixed(2);
     }
+  }
+
+  function makeSelect(options, value, onChange) {
+    var s = document.createElement("select");
+    s.className = "input select";
+    for (var i = 0; i < options.length; i++) {
+      var opt = document.createElement("option");
+      opt.value = options[i].code;
+      opt.textContent = options[i].label;
+      if (options[i].code === value) opt.selected = true;
+      s.appendChild(opt);
+    }
+    s.onchange = function () { onChange(s.value); };
+    return s;
   }
 
   function formatCountdown(ms) {
@@ -524,7 +628,7 @@
       path: "Path", alignment: "Alignment", maintenance: "Maintenance",
       finance: "Finance", vault: "Vault", settings: "Settings"
     };
-    return map[route] || "PERSONAL OS";
+    return map[route] ? t(map[route]) : "PERSONAL OS";
   }
 
   function goBack() {
@@ -926,41 +1030,41 @@
         r.appendChild(v);
         return r;
       }
-      rows.appendChild(statusRow("Priority", perf.total
+      rows.appendChild(statusRow(t("Priority"), perf.total
         ? (perf.done + "/" + perf.total + " done today")
         : "Set up Maintenance"));
-      rows.appendChild(statusRow("Next", nextText));
-      rows.appendChild(statusRow("Budget", budgetText));
+      rows.appendChild(statusRow(t("Next"), nextText));
+      rows.appendChild(statusRow(t("Budget"), budgetText));
       status.appendChild(rows);
       root.appendChild(status);
 
       // ---- Primary modules ----
       var modSection = document.createElement("div");
       modSection.className = "dash__section";
-      modSection.appendChild(sectionHeader("Modules"));
+      modSection.appendChild(sectionHeader(t("Modules")));
       var grid = document.createElement("div");
       grid.className = "tilegrid";
 
       grid.appendChild(moduleTile({
-        route: "path", icon: "path", name: "Path", wide: true,
+        route: "path", icon: "path", name: t("Path"), wide: true,
         status: nextText
       }));
       grid.appendChild(moduleTile({
-        route: "alignment", icon: "alignment", name: "Alignment",
+        route: "alignment", icon: "alignment", name: t("Alignment"),
         status: alignText
       }));
       grid.appendChild(moduleTile({
-        route: "maintenance", icon: "maintenance", name: "Maintenance",
+        route: "maintenance", icon: "maintenance", name: t("Maintenance"),
         status: perf.total ? (perf.done + "/" + perf.total + " today") : "No items yet",
         progress: perf.total ? perf.score : 0
       }));
       grid.appendChild(moduleTile({
-        route: "finance", icon: "finance", name: "Finance",
+        route: "finance", icon: "finance", name: t("Finance"),
         status: budgetText,
         progress: budget > 0 ? Math.min(100, spentPct) : 0
       }));
       grid.appendChild(moduleTile({
-        route: "vault", icon: "vault", name: "Vault",
+        route: "vault", icon: "vault", name: t("Vault"),
         status: vaultText
       }));
       modSection.appendChild(grid);
@@ -969,7 +1073,7 @@
       // ---- Current focus ----
       var focusSection = document.createElement("div");
       focusSection.className = "dash__section";
-      focusSection.appendChild(sectionHeader("Current Focus"));
+      focusSection.appendChild(sectionHeader(t("Current Focus")));
       var focusCard = document.createElement("div");
       focusCard.className = "glass card";
       focusCard.appendChild(textLine(nextBlock ? nextBlock.title : "Daily performance",
@@ -986,7 +1090,7 @@
       // ---- Relevant insights ----
       var insightsSection = document.createElement("div");
       insightsSection.className = "dash__section";
-      insightsSection.appendChild(sectionHeader("Relevant Insights"));
+      insightsSection.appendChild(sectionHeader(t("Relevant Insights")));
       var insWrap = document.createElement("div");
       insWrap.className = "list";
       var insCount = 0;
@@ -1020,7 +1124,7 @@
       var setGrid = document.createElement("div");
       setGrid.className = "tilegrid";
       setGrid.appendChild(moduleTile({
-        route: "settings", icon: "settings", name: "Settings", wide: true, muted: true,
+        route: "settings", icon: "settings", name: t("Settings"), wide: true, muted: true,
         status: "Backup, restore, preferences"
       }));
       root.appendChild(setGrid);
@@ -1032,7 +1136,7 @@
       var mode = (params && params.get("mode")) ? params.get("mode") : "morning";
       if (mode !== "morning" && mode !== "evening" && mode !== "choose") mode = "morning";
 
-      var root = sectionTitle("Alignment", "Reflect and realign — Morning and Evening flows.");
+      var root = sectionTitle(t("Alignment"), "Reflect and realign — Morning and Evening flows.");
 
       var seg = segmented(
         mode === "choose" ? "morning" : mode,
@@ -1057,7 +1161,7 @@
     }
 
     async function vault(container, params) {
-      var root = sectionTitle("Vault", "Your immutable archive of closed days.");
+      var root = sectionTitle(t("Vault"), "Your immutable archive of closed days.");
       await renderVault(root, params);
       container.appendChild(root);
     }
@@ -1379,7 +1483,7 @@
 
     async function maintenance(container) {
       await State.loadMaintenance();
-      var root = sectionTitle("Maintenance", "Habits and Daily Tasks. Check them off — this feeds your Performance score.");
+      var root = sectionTitle(t("Maintenance"), "Habits and Daily Tasks. Check them off — this feeds your Performance score.");
 
       // Score card
       var perf = State.s.perf;
@@ -1753,7 +1857,7 @@
     }
 
     async function finance(container) {
-      var root = sectionTitle("Finance", "Monthly budget, recurring costs, spending breakdown, and the 72h Gatekeeper.");
+      var root = sectionTitle(t("Finance"), "Monthly budget, recurring costs, spending breakdown, and the 72h Gatekeeper.");
       var month = State.s.month;
       var budget = await DB.getBudget(month);
       var txns = await DB.listTransactionsByMonth(month);
@@ -2058,12 +2162,41 @@
     }
 
     async function settings(container) {
-      var root = sectionTitle("Settings", "Back up, restore, and reset your PERSONAL OS.");
+      var root = sectionTitle(t("Settings"), t("Back up, restore, and reset your PERSONAL OS."));
+
+      // Preferences (currency / language / measurement)
+      var prefCard = document.createElement("div");
+      prefCard.className = "glass card";
+      prefCard.appendChild(textLine(t("Preferences"), t("Regional & display")));
+      prefCard.appendChild(fieldWrap(t("Currency"),
+        makeSelect(CURRENCIES, Prefs.currency, async function (v) {
+          await savePref("currency", v);
+          toast(t("Preferences saved."));
+          Router.render();
+        })));
+      prefCard.appendChild(fieldWrap(t("Language"),
+        makeSelect(LANGUAGES, Prefs.language, async function (v) {
+          await savePref("language", v);
+          toast(t("Preferences saved."));
+          Router.render();
+        })));
+      prefCard.appendChild(fieldWrap(t("Measurement system"),
+        makeSelect(MEASURES, Prefs.measure, async function (v) {
+          await savePref("measure", v);
+          toast(t("Preferences saved."));
+          Router.render();
+        })));
+      var measNote = document.createElement("div");
+      measNote.className = "p";
+      measNote.style.marginTop = "8px";
+      measNote.textContent = t("Applies to unit-based values as they are added.");
+      prefCard.appendChild(measNote);
+      root.appendChild(prefCard);
 
       // Export
       var expCard = document.createElement("div");
       expCard.className = "glass card";
-      expCard.appendChild(textLine("Export Data", "Download a JSON backup"));
+      expCard.appendChild(textLine(t("Export Data"), "Download a JSON backup"));
       expCard.appendChild(spacer(8));
       var ep = document.createElement("div");
       ep.className = "p";
@@ -2095,7 +2228,7 @@
       // Import
       var impCard = document.createElement("div");
       impCard.className = "glass card";
-      impCard.appendChild(textLine("Import Data", "Restore from a backup file"));
+      impCard.appendChild(textLine(t("Import Data"), "Restore from a backup file"));
       impCard.appendChild(spacer(12));
       var fileI = document.createElement("input");
       fileI.type = "file";
@@ -2128,7 +2261,7 @@
       // Danger zone: reset
       var resetCard = document.createElement("div");
       resetCard.className = "glass card";
-      resetCard.appendChild(textLine("Danger Zone", "Erase all data"));
+      resetCard.appendChild(textLine(t("Danger Zone"), "Erase all data"));
       resetCard.appendChild(spacer(8));
       var rp = document.createElement("div");
       rp.className = "p";
@@ -2159,7 +2292,7 @@
       // About
       var infoCard = document.createElement("div");
       infoCard.className = "glass card";
-      infoCard.appendChild(textLine("About", "PERSONAL OS"));
+      infoCard.appendChild(textLine(t("About"), "PERSONAL OS"));
       infoCard.appendChild(spacer(8));
       var v = document.createElement("div");
       v.className = "p";
@@ -2234,6 +2367,8 @@
 
     try { await DB.open(); }
     catch (e) { toast("Storage unavailable. Avoid Private Mode on iOS Safari."); }
+
+    await loadPrefs();
 
     Router.onChange(Router.render);
 
