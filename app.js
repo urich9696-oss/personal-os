@@ -37,8 +37,8 @@
   ];
 
   var MEASURES = [
-    { code: "metric", label: "Metric (km, kg, °C)" },
-    { code: "imperial", label: "Imperial (mi, lb, °F)" }
+    { code: "metric", label: "Metric (km, kg)" },
+    { code: "imperial", label: "Imperial (mi, lb)" }
   ];
 
   var PREF_KEYS = { currency: "pref_currency", language: "pref_language", measure: "pref_measure" };
