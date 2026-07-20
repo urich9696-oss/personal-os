@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.5";
+  var APP_VERSION = "1.0.6";
 
   function $(id) { return document.getElementById(id); }
 
@@ -127,22 +127,28 @@
       current = parsed.route;
 
       Timers.clearAll();
-      setNavActive(current);
+      renderHeader(parsed);
 
       var view = $("view");
       if (!view) return;
 
+      view.innerHTML = "";
+      var inner = document.createElement("div");
+      inner.className = "view__inner";
+      view.appendChild(inner);
+      view.scrollTop = 0;
+
       try {
-        view.innerHTML = "";
-        if (current === "dashboard") await Screens.dashboard(view);
-        else if (current === "alignment") await Screens.alignment(view, parsed.params);
-        else if (current === "maintenance") await Screens.maintenance(view);
-        else if (current === "path") await Screens.path(view);
-        else if (current === "finance") await Screens.finance(view);
-        else if (current === "settings") await Screens.settings(view);
-        else Screens.notFound(view, current);
+        if (current === "dashboard") await Screens.dashboard(inner);
+        else if (current === "path") await Screens.path(inner);
+        else if (current === "alignment") await Screens.alignment(inner, parsed.params);
+        else if (current === "maintenance") await Screens.maintenance(inner);
+        else if (current === "finance") await Screens.finance(inner);
+        else if (current === "vault") await Screens.vault(inner, parsed.params);
+        else if (current === "settings") await Screens.settings(inner);
+        else Screens.notFound(inner, current);
       } catch (e) {
-        Screens.bootError(view, "Render Error", String(e && e.message ? e.message : e));
+        Screens.bootError(inner, "Render Error", String(e && e.message ? e.message : e));
       }
     }
 
@@ -488,10 +494,125 @@
     return parts.join(" ");
   }
 
-  // Chart colour palette (Apple-like, multi-colour)
+  // ---------- Outline SVG icons (single consistent set) ----------
+  var ICONS = {
+    home: '<path d="M3 10.7 12 3l9 7.7"/><path d="M5.5 9.5V21h13V9.5"/>',
+    back: '<path d="M15 5l-7 7 7 7"/>',
+    chevron: '<path d="M9 5l7 7-7 7"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.65 1.65 0 0 0 .33 1.82l.05.05a2 2 0 1 1-2.83 2.83l-.05-.05a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.08a1.65 1.65 0 0 0-2.82-1.17l-.05.05a2 2 0 1 1-2.83-2.83l.05-.05A1.65 1.65 0 0 0 4.6 13.5H4.5a2 2 0 0 1 0-4h.08A1.65 1.65 0 0 0 5.75 6.7l-.05-.05A2 2 0 1 1 8.53 3.8l.05.05A1.65 1.65 0 0 0 11.4 2.7V2.5a2 2 0 0 1 4 0v.08a1.65 1.65 0 0 0 2.82 1.17l.05-.05a2 2 0 1 1 2.83 2.83l-.05.05a1.65 1.65 0 0 0-.38 1.82V6.7a1.65 1.65 0 0 0 1.5 1V9.5a2 2 0 0 1 0 4z"/>',
+    path: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
+    alignment: '<circle cx="12" cy="12" r="9"/><path d="M15.6 8.4 13.4 13.4 8.4 15.6 10.6 10.6z"/>',
+    maintenance: '<path d="M3 12h4l2.5 6 5-12 2.5 6H21"/>',
+    finance: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M15 14h3"/>',
+    vault: '<rect x="3.5" y="4.5" width="17" height="4" rx="1"/><path d="M5.5 8.5V19a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V8.5"/><path d="M10 12.5h4"/>',
+    profile: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
+    dashboard: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>'
+  };
+
+  function svgIcon(name) {
+    var span = document.createElement("span");
+    span.className = "ic";
+    span.setAttribute("aria-hidden", "true");
+    span.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+      + 'stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">'
+      + (ICONS[name] || "") + '</svg>';
+    return span;
+  }
+
+  function headerTitle(route) {
+    var map = {
+      path: "Path", alignment: "Alignment", maintenance: "Maintenance",
+      finance: "Finance", vault: "Vault", settings: "Settings"
+    };
+    return map[route] || "PERSONAL OS";
+  }
+
+  function goBack() {
+    if (window.history.length > 1) window.history.back();
+    else Router.go("dashboard");
+  }
+
+  function renderHeader(parsed) {
+    var host = $("appheader");
+    if (!host) return;
+    host.innerHTML = "";
+    var route = parsed.route;
+    var row = document.createElement("div");
+    row.className = "appheader__row";
+
+    if (route === "dashboard") {
+      var brand = document.createElement("div");
+      brand.className = "appheader__brand";
+      var name = document.createElement("div");
+      name.className = "appheader__name";
+      name.textContent = "PERSONAL OS";
+      var sub = document.createElement("div");
+      sub.className = "appheader__sub";
+      sub.textContent = formatNiceDate(new Date());
+      brand.appendChild(name);
+      brand.appendChild(sub);
+
+      var setBtn = document.createElement("button");
+      setBtn.className = "hbtn hbtn--right";
+      setBtn.type = "button";
+      setBtn.setAttribute("aria-label", "Settings");
+      setBtn.appendChild(svgIcon("settings"));
+      setBtn.onclick = function () { Router.go("settings"); };
+
+      row.appendChild(brand);
+      row.appendChild(setBtn);
+    } else {
+      var back = document.createElement("button");
+      back.className = "hbtn";
+      back.type = "button";
+      back.setAttribute("aria-label", "Back");
+      back.appendChild(svgIcon("back"));
+      back.onclick = function () { goBack(); };
+
+      var title = document.createElement("div");
+      title.className = "appheader__title";
+      title.textContent = headerTitle(route);
+
+      var home = document.createElement("button");
+      home.className = "hbtn hbtn--right";
+      home.type = "button";
+      home.setAttribute("aria-label", "Dashboard");
+      home.appendChild(svgIcon("home"));
+      home.onclick = function () { Router.go("dashboard"); };
+
+      row.appendChild(back);
+      row.appendChild(title);
+      row.appendChild(home);
+    }
+    host.appendChild(row);
+  }
+
+  function progressBar(percent, leftLabel, rightLabel) {
+    var pct = Math.max(0, Math.min(100, Math.round(percent || 0)));
+    var wrap = document.createElement("div");
+    wrap.className = "progress";
+    var track = document.createElement("div");
+    track.className = "progress__track";
+    var fill = document.createElement("div");
+    fill.className = "progress__fill";
+    fill.style.width = pct + "%";
+    track.appendChild(fill);
+    wrap.appendChild(track);
+    if (leftLabel || rightLabel) {
+      var meta = document.createElement("div");
+      meta.className = "progress__meta";
+      var l = document.createElement("span"); l.textContent = leftLabel || "";
+      var r = document.createElement("span"); r.textContent = rightLabel || "";
+      meta.appendChild(l); meta.appendChild(r);
+      wrap.appendChild(meta);
+    }
+    return wrap;
+  }
+
+  // Chart colour palette (calm, muted, distinguishable slices)
   var PALETTE = [
-    "#0071e3", "#34c759", "#ff9500", "#ff2d55", "#5856d6",
-    "#af52de", "#5ac8fa", "#ffcc00", "#00c7be", "#ff3b30", "#8e8e93"
+    "#4E6678", "#4F7A5A", "#B88746", "#8A2D2D", "#6B5E8A",
+    "#5E8A86", "#7C6F5A", "#3F5468", "#8A6D4F", "#607060", "#797979"
   ];
 
   var SVG_NS = "http://www.w3.org/2000/svg";
@@ -607,9 +728,89 @@
     return slices;
   }
 
+  function sectionHeader(title, meta) {
+    var h = document.createElement("div");
+    h.className = "section-header";
+    var t = document.createElement("div");
+    t.className = "section-header__title";
+    t.textContent = title;
+    h.appendChild(t);
+    if (meta) {
+      var m = document.createElement("div");
+      m.className = "section-header__meta";
+      m.textContent = meta;
+      h.appendChild(m);
+    }
+    return h;
+  }
+
+  function moduleTile(opts) {
+    var t = document.createElement("button");
+    t.type = "button";
+    t.className = "tile"
+      + (opts.wide ? " tile--wide" : "")
+      + (opts.muted ? " tile--muted" : "");
+    t.setAttribute("aria-label", opts.name);
+    t.onclick = function () { Router.go(opts.route, opts.params || {}); };
+
+    var top = document.createElement("div");
+    top.className = "tile__top";
+    var ic = document.createElement("span");
+    ic.className = "tile__icon";
+    ic.appendChild(svgIcon(opts.icon));
+    var chev = document.createElement("span");
+    chev.className = "tile__chev";
+    chev.appendChild(svgIcon("chevron"));
+    top.appendChild(ic);
+    top.appendChild(chev);
+    t.appendChild(top);
+
+    var name = document.createElement("div");
+    name.className = "tile__name";
+    name.textContent = opts.name;
+    t.appendChild(name);
+
+    if (opts.status) {
+      var st = document.createElement("div");
+      st.className = "tile__status";
+      st.textContent = opts.status;
+      t.appendChild(st);
+    }
+
+    if (typeof opts.progress === "number") {
+      var sp = document.createElement("div");
+      sp.className = "tile__spacer";
+      t.appendChild(sp);
+      t.appendChild(progressBar(opts.progress));
+    }
+    return t;
+  }
+
+  function insightRow(kind, title, desc) {
+    var row = document.createElement("div");
+    row.className = "insight";
+    var dot = document.createElement("span");
+    dot.className = "insight__dot" + (kind ? (" insight__dot--" + kind) : "");
+    var body = document.createElement("div");
+    body.className = "insight__body";
+    var t = document.createElement("div");
+    t.className = "insight__title";
+    t.textContent = title;
+    body.appendChild(t);
+    if (desc) {
+      var d = document.createElement("div");
+      d.className = "insight__desc";
+      d.textContent = desc;
+      body.appendChild(d);
+    }
+    row.appendChild(dot);
+    row.appendChild(body);
+    return row;
+  }
+
   function segmented(initialKey, items, onChange) {
     var host = document.createElement("div");
-    host.className = "glass card segment";
+    host.className = "segment";
 
     var activeKey = initialKey;
 
@@ -644,14 +845,13 @@
   var Screens = (function () {
 
     async function dashboard(container) {
-      // compute performance from Maintenance
       await State.loadMaintenance();
       var perf = State.s.perf;
 
-      // Live summaries for widgets (Batches 4 & 5)
       var today = State.s.today;
       var month = State.s.month;
 
+      // Path — next time block
       var dayBlocks = await DB.listBlocksByDay(today);
       var nowD = new Date();
       var nowHM = pad2(nowD.getHours()) + ":" + pad2(nowD.getMinutes());
@@ -661,12 +861,16 @@
       }
       var nextText = nextBlock
         ? (nextBlock.start + " · " + nextBlock.title)
-        : (dayBlocks.length ? "Day complete" : "No blocks yet");
+        : (dayBlocks.length ? "All blocks done" : "No blocks planned");
 
+      // Finance
       var budget = await DB.getBudget(month);
       var spent = (await DB.sumTransactionsForMonth(month)) + (await DB.sumRecurring());
-      var budgetText = budget > 0 ? formatMoney(budget - spent) : "—";
+      var remaining = budget - spent;
+      var spentPct = budget > 0 ? Math.round((spent / budget) * 100) : 0;
+      var budgetText = budget > 0 ? (formatMoney(remaining) + " left") : "No budget set";
 
+      // Gatekeeper
       var gates = await DB.listGates();
       var nowMs = Date.now();
       var lockedCount = 0, readyCount = 0;
@@ -674,87 +878,167 @@
         if (nowMs >= gates[gi].unlockAt) readyCount++;
         else lockedCount++;
       }
-      var gateText = lockedCount ? (lockedCount + " locked")
-        : (readyCount ? (readyCount + " ready") : "No active lock");
+
+      // Alignment (journaling today)
+      var mJournal = await DB.getJournal(today, "morning");
+      var eJournal = await DB.getJournal(today, "evening");
+      var alignText = (mJournal ? "Morning done" : "Morning open")
+        + " · " + (eJournal ? "Evening done" : "Evening open");
+
+      // Vault
+      var vaultList = await DB.listVault();
+      var vaultText = vaultList.length
+        ? (vaultList.length + " archived day" + (vaultList.length === 1 ? "" : "s"))
+        : "Nothing archived yet";
+
+      var remainingItems = perf.total ? (perf.total - perf.done) : 0;
 
       var root = document.createElement("div");
-      root.className = "stack";
+      root.className = "dash";
 
-      var hero = document.createElement("div");
-      hero.className = "glass card card--strong";
+      // ---- Today / System status ----
+      var status = document.createElement("div");
+      status.className = "statuscard";
+      var lead = document.createElement("div");
+      lead.className = "statuscard__lead";
+      lead.textContent = "Today · " + formatNiceDate(nowD);
+      var headline = document.createElement("div");
+      headline.className = "statuscard__headline";
+      if (perf.total && remainingItems > 0) headline.textContent = "Keep your system on track";
+      else if (nextBlock) headline.textContent = "Next: " + nextBlock.title;
+      else if (!mJournal) headline.textContent = "Begin with your morning journal";
+      else headline.textContent = "You’re aligned for today";
+      status.appendChild(lead);
+      status.appendChild(headline);
 
-      var h1 = document.createElement("div");
-      h1.className = "h1";
-      h1.textContent = "Dashboard";
+      var rows = document.createElement("div");
+      rows.className = "statuscard__rows";
+      function statusRow(label, value) {
+        var r = document.createElement("div");
+        r.className = "statusrow";
+        var l = document.createElement("div");
+        l.className = "statusrow__label";
+        l.textContent = label;
+        var v = document.createElement("div");
+        v.className = "statusrow__value";
+        v.textContent = value;
+        r.appendChild(l);
+        r.appendChild(v);
+        return r;
+      }
+      rows.appendChild(statusRow("Priority", perf.total
+        ? (perf.done + "/" + perf.total + " done today")
+        : "Set up Maintenance"));
+      rows.appendChild(statusRow("Next", nextText));
+      rows.appendChild(statusRow("Budget", budgetText));
+      status.appendChild(rows);
+      root.appendChild(status);
 
-      var p = document.createElement("div");
-      p.className = "p";
-      p.textContent = "Your daily command center. Performance, Path, Budget, and Gatekeeper — in one glance.";
+      // ---- Primary modules ----
+      var modSection = document.createElement("div");
+      modSection.className = "dash__section";
+      modSection.appendChild(sectionHeader("Modules"));
+      var grid = document.createElement("div");
+      grid.className = "tilegrid";
 
-      hero.appendChild(h1);
-      hero.appendChild(p);
+      grid.appendChild(moduleTile({
+        route: "path", icon: "path", name: "Path", wide: true,
+        status: nextText
+      }));
+      grid.appendChild(moduleTile({
+        route: "alignment", icon: "alignment", name: "Alignment",
+        status: alignText
+      }));
+      grid.appendChild(moduleTile({
+        route: "maintenance", icon: "maintenance", name: "Maintenance",
+        status: perf.total ? (perf.done + "/" + perf.total + " today") : "No items yet",
+        progress: perf.total ? perf.score : 0
+      }));
+      grid.appendChild(moduleTile({
+        route: "finance", icon: "finance", name: "Finance",
+        status: budgetText,
+        progress: budget > 0 ? Math.min(100, spentPct) : 0
+      }));
+      grid.appendChild(moduleTile({
+        route: "vault", icon: "vault", name: "Vault",
+        status: vaultText
+      }));
+      modSection.appendChild(grid);
+      root.appendChild(modSection);
 
-      var btn = document.createElement("button");
-      btn.className = "btnPrimary";
-      btn.type = "button";
-      btn.textContent = "Start Journal";
-      btn.onclick = function () { Router.go("alignment", { mode: "choose" }); };
+      // ---- Current focus ----
+      var focusSection = document.createElement("div");
+      focusSection.className = "dash__section";
+      focusSection.appendChild(sectionHeader("Current Focus"));
+      var focusCard = document.createElement("div");
+      focusCard.className = "glass card";
+      focusCard.appendChild(textLine(nextBlock ? nextBlock.title : "Daily performance",
+        nextBlock ? (nextBlock.start + (nextBlock.end ? "–" + nextBlock.end : "")) : "Maintenance"));
+      focusCard.appendChild(spacer(12));
+      focusCard.appendChild(progressBar(
+        perf.total ? perf.score : 0,
+        "Performance",
+        (perf.total ? perf.score : 0) + "%"
+      ));
+      focusSection.appendChild(focusCard);
+      root.appendChild(focusSection);
 
-      hero.appendChild(spacer(10));
-      hero.appendChild(btn);
-      root.appendChild(hero);
+      // ---- Relevant insights ----
+      var insightsSection = document.createElement("div");
+      insightsSection.className = "dash__section";
+      insightsSection.appendChild(sectionHeader("Relevant Insights"));
+      var insWrap = document.createElement("div");
+      insWrap.className = "list";
+      var insCount = 0;
+      if (readyCount > 0) {
+        insWrap.appendChild(insightRow("info", "Gatekeeper decision ready",
+          readyCount + " item" + (readyCount === 1 ? "" : "s") + " unlocked in Finance"));
+        insCount++;
+      }
+      if (budget > 0 && spent > budget) {
+        insWrap.appendChild(insightRow("critical", "Over budget",
+          "Spent " + formatMoney(spent) + " of " + formatMoney(budget)));
+        insCount++;
+      } else if (budget > 0 && spentPct >= 90) {
+        insWrap.appendChild(insightRow("warning", "Budget nearly used",
+          spentPct + "% of this month’s budget"));
+        insCount++;
+      }
+      if (remainingItems > 0) {
+        insWrap.appendChild(insightRow("neutral", "Open habits & tasks",
+          remainingItems + " still to check off today"));
+        insCount++;
+      }
+      if (!insCount) {
+        insWrap.appendChild(insightRow("success", "All clear",
+          "No open warnings right now."));
+      }
+      insightsSection.appendChild(insWrap);
+      root.appendChild(insightsSection);
 
-      var row1 = document.createElement("div");
-      row1.className = "row";
-      row1.appendChild(widgetCard("Performance", "Score", perf.total ? (perf.score + "%") : "—"));
-      row1.appendChild(widgetCard("Next Block", "Today’s Path", nextText));
-
-      var row2 = document.createElement("div");
-      row2.className = "row";
-      row2.appendChild(widgetCard("Budget", "Remaining", budgetText));
-      row2.appendChild(widgetCard("Gatekeeper", "72h Lock", gateText));
-
-      root.appendChild(row1);
-      root.appendChild(row2);
-
-      var qa = document.createElement("div");
-      qa.className = "glass card";
-      qa.appendChild(textLine("Quick Actions", "Maintenance + Alignment are live"));
-      qa.appendChild(spacer(10));
-
-      var b1 = document.createElement("button");
-      b1.className = "btnGhost";
-      b1.type = "button";
-      b1.textContent = "Open Maintenance";
-      b1.onclick = function () { Router.go("maintenance"); };
-
-      var b2 = document.createElement("button");
-      b2.className = "btnGhost";
-      b2.type = "button";
-      b2.textContent = "Open Alignment";
-      b2.style.marginLeft = "10px";
-      b2.onclick = function () { Router.go("alignment", { mode: "morning" }); };
-
-      qa.appendChild(b1);
-      qa.appendChild(b2);
-
-      root.appendChild(qa);
+      // ---- Settings (restrained) ----
+      var setGrid = document.createElement("div");
+      setGrid.className = "tilegrid";
+      setGrid.appendChild(moduleTile({
+        route: "settings", icon: "settings", name: "Settings", wide: true, muted: true,
+        status: "Backup, restore, preferences"
+      }));
+      root.appendChild(setGrid);
 
       container.appendChild(root);
     }
 
     async function alignment(container, params) {
       var mode = (params && params.get("mode")) ? params.get("mode") : "morning";
-      if (mode !== "morning" && mode !== "evening" && mode !== "vault" && mode !== "choose") mode = "morning";
+      if (mode !== "morning" && mode !== "evening" && mode !== "choose") mode = "morning";
 
-      var root = sectionTitle("Alignment", "Morning Flow, Evening Flow, and Vault (read-only).");
+      var root = sectionTitle("Alignment", "Reflect and realign — Morning and Evening flows.");
 
       var seg = segmented(
         mode === "choose" ? "morning" : mode,
         [
           { key: "morning", label: "Morning" },
-          { key: "evening", label: "Evening" },
-          { key: "vault", label: "Vault" }
+          { key: "evening", label: "Evening" }
         ],
         function (k) { Router.go("alignment", { mode: k }); }
       );
@@ -768,8 +1052,13 @@
       if (mode === "choose") renderChoose(content);
       else if (mode === "morning") await renderMorning(content);
       else if (mode === "evening") await renderEvening(content);
-      else if (mode === "vault") await renderVault(content, params);
 
+      container.appendChild(root);
+    }
+
+    async function vault(container, params) {
+      var root = sectionTitle("Vault", "Your immutable archive of closed days.");
+      await renderVault(root, params);
       container.appendChild(root);
     }
 
@@ -911,7 +1200,7 @@
             return;
           }
           toast("Day closed to Vault.");
-          Router.go("alignment", { mode: "vault" });
+          Router.go("vault");
         } catch (e) { toast("Close failed."); }
       };
 
@@ -927,7 +1216,7 @@
 
       var card = document.createElement("div");
       card.className = "glass card";
-      card.appendChild(textLine("Vault", "Read-only archive"));
+      card.appendChild(textLine("Closed Days", "Read-only"));
       card.appendChild(spacer(10));
 
       await State.loadVaultList();
@@ -963,7 +1252,7 @@
           back.className = "btnGhost";
           back.type = "button";
           back.textContent = "Back to Vault List";
-          back.onclick = function () { Router.go("alignment", { mode: "vault" }); };
+          back.onclick = function () { Router.go("vault"); };
           card.appendChild(back);
         }
 
@@ -1009,7 +1298,7 @@
           it.appendChild(left);
           it.appendChild(che);
 
-          it.onclick = function () { Router.go("alignment", { mode: "vault", day: row.dayKey }); };
+          it.onclick = function () { Router.go("vault", { day: row.dayKey }); };
 
           listEl.appendChild(it);
         })(list[i]);
@@ -1919,10 +2208,11 @@
 
     return {
       dashboard: dashboard,
+      path: path,
       alignment: alignment,
       maintenance: maintenance,
-      path: path,
       finance: finance,
+      vault: vault,
       settings: settings,
       notFound: notFound,
       bootError: bootError
@@ -1939,31 +2229,19 @@
 
   // ---------- Boot ----------
   async function boot() {
-    var d = new Date();
-    var dateEl = $("today-date");
-    if (dateEl) dateEl.textContent = formatNiceDate(d);
-
     var killed = await runKillSwitchIfNeeded();
     if (killed) return;
 
     try { await DB.open(); }
     catch (e) { toast("Storage unavailable. Avoid Private Mode on iOS Safari."); }
 
-    var dashBtn = $("btn-dashboard");
-    if (dashBtn) dashBtn.addEventListener("click", function () { Router.go("dashboard"); });
-
-    var navBtns = document.querySelectorAll(".navbtn");
-    for (var i = 0; i < navBtns.length; i++) {
-      navBtns[i].addEventListener("click", function (ev) {
-        var r = ev.currentTarget.getAttribute("data-route");
-        Router.go(r);
-      });
-    }
-
     Router.onChange(Router.render);
 
-    if (!location.hash || location.hash === "#") Router.go("dashboard");
-    else await Router.render();
+    // Always open the Dashboard on start — never the last-opened page.
+    if (getHashRoute().split("?")[0] !== "dashboard") {
+      Router.go("dashboard");
+    }
+    await Router.render();
 
     registerSW();
   }

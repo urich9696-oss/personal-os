@@ -1,8 +1,8 @@
-/* sw.js — Service Worker / Offline System (Batches 4–6 + finance charts)
-   Cache version bump: v1.0.5
+/* sw.js — Service Worker / Offline System (SilentOps mobile redesign)
+   Cache version bump: v1.0.6
 */
 
-const CACHE_VERSION = "v1.0.5";
+const CACHE_VERSION = "v1.0.6";
 const CACHE_NAME = `personal-os-${CACHE_VERSION}`;
 
 function basePath() {
