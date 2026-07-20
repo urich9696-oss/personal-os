@@ -5,13 +5,13 @@ Backend und speichert ihre Daten lokal im Browser.
 
 ## GitHub Pages
 
-Nach einem Push auf `main` veröffentlicht der Workflow
-`.github/workflows/deploy-pages.yml` die App automatisch unter:
+GitHub Pages veröffentlicht den Inhalt des Repository-Roots von `main`
+automatisch unter:
 
 <https://urich9696-oss.github.io/personal-os/>
 
-Der erste Lauf kann einige Minuten benötigen. Der Status ist im GitHub-Tab
-**Actions** unter **Deploy to GitHub Pages** sichtbar.
+Nach einem Merge oder Push auf `main` kann die Aktualisierung einige Minuten
+benötigen.
 
 ## Auf dem Handy installieren
 
