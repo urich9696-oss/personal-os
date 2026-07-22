@@ -365,14 +365,30 @@
     return all;
   }
 
+  async function updateBlock(id, patch) {
+    var row = await get("blocks", id);
+    if (!row) throw new Error("Block not found");
+    patch = patch || {};
+    if (typeof patch.dayKey !== "undefined") row.dayKey = String(patch.dayKey || "").trim();
+    if (typeof patch.start !== "undefined") row.start = String(patch.start || "").trim();
+    if (typeof patch.end !== "undefined") row.end = String(patch.end || "").trim();
+    if (typeof patch.title !== "undefined") row.title = String(patch.title || "").trim();
+    if (!row.title) throw new Error("Block title required");
+    if (!row.start) throw new Error("Start time required");
+    row.updatedAt = Date.now();
+    await put("blocks", row);
+    return row;
+  }
+
   async function deleteBlock(id) { return del("blocks", id); }
 
   // -------- Calendar: Reminders --------
-  async function addReminder(dayKey, time, title, note) {
+  async function addReminder(dayKey, time, end, title, note) {
     var row = {
       id: uid("reminder"),
       dayKey: String(dayKey || "").trim(),
       time: String(time || "").trim(),
+      end: String(end || "").trim(),
       title: String(title || "").trim(),
       note: String(note || "").trim(),
       done: false,
@@ -400,6 +416,22 @@
         .localeCompare((b.dayKey || "") + (b.time || "99:99"));
     });
     return all;
+  }
+
+  async function updateReminder(id, patch) {
+    var row = await get("reminders", id);
+    if (!row) throw new Error("Reminder not found");
+    patch = patch || {};
+    if (typeof patch.dayKey !== "undefined") row.dayKey = String(patch.dayKey || "").trim();
+    if (typeof patch.time !== "undefined") row.time = String(patch.time || "").trim();
+    if (typeof patch.end !== "undefined") row.end = String(patch.end || "").trim();
+    if (typeof patch.title !== "undefined") row.title = String(patch.title || "").trim();
+    if (typeof patch.note !== "undefined") row.note = String(patch.note || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.dayKey)) throw new Error("Valid date required");
+    if (!row.title) throw new Error("Reminder title required");
+    row.updatedAt = Date.now();
+    await put("reminders", row);
+    return row;
   }
 
   async function setReminderDone(id, done) {
@@ -626,11 +658,13 @@
   DB.addBlock = addBlock;
   DB.listBlocksByDay = listBlocksByDay;
   DB.listBlocksByRange = listBlocksByRange;
+  DB.updateBlock = updateBlock;
   DB.deleteBlock = deleteBlock;
 
   DB.addReminder = addReminder;
   DB.listRemindersByDay = listRemindersByDay;
   DB.listRemindersByRange = listRemindersByRange;
+  DB.updateReminder = updateReminder;
   DB.setReminderDone = setReminderDone;
   DB.deleteReminder = deleteReminder;
 

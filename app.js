@@ -66,6 +66,16 @@
       "Today’s agenda": "Heutige Agenda",
       "Add an entry": "Eintrag hinzufügen",
       "More entries": "Weitere Einträge",
+      "Week": "Woche",
+      "Edit": "Bearbeiten",
+      "Edit Entry": "Eintrag bearbeiten",
+      "Save Changes": "Änderungen speichern",
+      "Day Structures": "Tagesstrukturen",
+      "Reusable day plans": "Wiederverwendbare Tagespläne",
+      "Apply to date": "Auf Datum anwenden",
+      "Use": "Verwenden",
+      "Tap an hour to add an entry.": "Tippe auf eine Stunde, um einen Eintrag hinzuzufügen.",
+      "Save today as structure": "Heute als Struktur speichern",
 
       // Module subtitles / instructions
       "Plan your day in time blocks. Load a template to start fast.": "Plane deinen Tag in Zeitblöcken. Lade eine Vorlage für einen schnellen Start.",
@@ -201,6 +211,8 @@
       "Reminder added.": "Erinnerung hinzugefügt.",
       "Reminder removed.": "Erinnerung entfernt.",
       "Reminder updated.": "Erinnerung aktualisiert.",
+      "Entry updated.": "Eintrag aktualisiert.",
+      "Day structure applied.": "Tagesstruktur angewendet.",
       "Expense added.": "Ausgabe hinzugefügt.",
       "Expense removed.": "Ausgabe entfernt.",
       "Recurring expense added.": "Wiederkehrende Ausgabe hinzugefügt.",
@@ -292,6 +304,48 @@
     return { first: first, last: last, start: dayKey(first), end: dayKey(last) };
   }
 
+  function weekBounds(date) {
+    var d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+    var mondayFirst = effectiveLang() === "de";
+    var offset = mondayFirst ? ((d.getDay() + 6) % 7) : d.getDay();
+    var first = addDays(d, -offset);
+    var days = [];
+    for (var i = 0; i < 7; i++) days.push(addDays(first, i));
+    return { first: first, last: days[6], start: dayKey(first), end: dayKey(days[6]), days: days };
+  }
+
+  function hmToMinutes(value) {
+    var m = /^(\d{2}):(\d{2})$/.exec(String(value || ""));
+    if (!m) return null;
+    var hours = Number(m[1]);
+    var minutes = Number(m[2]);
+    if (hours > 23 || minutes > 59) return null;
+    return hours * 60 + minutes;
+  }
+
+  function minutesToHM(value) {
+    var minutes = Math.max(0, Math.min((24 * 60) - 1, Number(value) || 0));
+    return pad2(Math.floor(minutes / 60)) + ":" + pad2(minutes % 60);
+  }
+
+  function addMinutesToHM(value, amount) {
+    var minutes = hmToMinutes(value);
+    return minutes === null ? "" : minutesToHM(minutes + amount);
+  }
+
+  function eventEnd(event) {
+    return event.end || addMinutesToHM(event.time, 60);
+  }
+
+  function formatWeekRange(bounds) {
+    try {
+      var formatter = new Intl.DateTimeFormat(localeTag(), { day: "2-digit", month: "short" });
+      return formatter.format(bounds.first) + " – " + formatter.format(bounds.last);
+    } catch (e) {
+      return bounds.start + " – " + bounds.end;
+    }
+  }
+
   function formatMonthTitle(date) {
     try { return new Intl.DateTimeFormat(localeTag(), { month: "long", year: "numeric" }).format(date); }
     catch (e) { return monthKey(date); }
@@ -312,7 +366,7 @@
     results[1].forEach(function (r) {
       events.push({
         type: "reminder", id: r.id, dayKey: r.dayKey, time: r.time || "",
-        end: "", title: r.title, note: r.note || "", done: !!r.done
+        end: r.end || "", title: r.title, note: r.note || "", done: !!r.done
       });
     });
     events.sort(function (a, b) {
@@ -1276,6 +1330,157 @@
     return card;
   }
 
+  function dashboardWeekCalendarCard(nowDate, events) {
+    var bounds = weekBounds(nowDate);
+    var today = dayKey(nowDate);
+    var startHour = 6;
+    var endHour = 23;
+    var hourHeight = 48;
+    var eventsByDay = {};
+    (events || []).forEach(function (event) {
+      if (!eventsByDay[event.dayKey]) eventsByDay[event.dayKey] = [];
+      eventsByDay[event.dayKey].push(event);
+    });
+
+    var card = document.createElement("section");
+    card.className = "dashboard-calendar week-calendar";
+    card.setAttribute("aria-label", tr("Week") + " " + formatWeekRange(bounds));
+
+    var header = document.createElement("div");
+    header.className = "dashboard-calendar__header";
+    var heading = document.createElement("div");
+    var lead = document.createElement("div");
+    lead.className = "dashboard-calendar__lead";
+    lead.textContent = tr("Today") + " · " + formatNiceDate(nowDate);
+    var title = document.createElement("div");
+    title.className = "dashboard-calendar__title";
+    title.textContent = tr("Week") + " · " + formatWeekRange(bounds);
+    heading.appendChild(lead);
+    heading.appendChild(title);
+    var open = document.createElement("button");
+    open.type = "button";
+    open.className = "dashboard-calendar__open";
+    open.textContent = tr("Open calendar");
+    open.onclick = function () { Router.go("calendar", { day: today }); };
+    header.appendChild(heading);
+    header.appendChild(open);
+    card.appendChild(header);
+
+    var hint = document.createElement("div");
+    hint.className = "week-calendar__hint";
+    hint.textContent = tr("Tap an hour to add an entry.");
+    card.appendChild(hint);
+
+    var scroll = document.createElement("div");
+    scroll.className = "week-calendar__scroll";
+    var canvas = document.createElement("div");
+    canvas.className = "week-calendar__canvas";
+
+    var dayHeader = document.createElement("div");
+    dayHeader.className = "week-calendar__days";
+    var corner = document.createElement("span");
+    corner.className = "week-calendar__corner";
+    dayHeader.appendChild(corner);
+    bounds.days.forEach(function (date) {
+      var key = dayKey(date);
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "week-calendar__day" + (key === today ? " is-today" : "");
+      button.onclick = function () { Router.go("calendar", { day: key }); };
+      var weekday = document.createElement("span");
+      weekday.textContent = new Intl.DateTimeFormat(localeTag(), { weekday: "short" }).format(date);
+      var number = document.createElement("strong");
+      number.textContent = String(date.getDate());
+      button.appendChild(weekday);
+      button.appendChild(number);
+      dayHeader.appendChild(button);
+    });
+    canvas.appendChild(dayHeader);
+
+    var body = document.createElement("div");
+    body.className = "week-calendar__body";
+    body.style.height = ((endHour - startHour) * hourHeight) + "px";
+    var times = document.createElement("div");
+    times.className = "week-calendar__times";
+    for (var hour = startHour; hour <= endHour; hour++) {
+      var label = document.createElement("span");
+      label.className = "week-calendar__hour";
+      label.style.top = ((hour - startHour) * hourHeight - 7) + "px";
+      label.textContent = pad2(hour) + ":00";
+      times.appendChild(label);
+    }
+    body.appendChild(times);
+
+    bounds.days.forEach(function (date) {
+      var key = dayKey(date);
+      var column = document.createElement("div");
+      column.className = "week-calendar__column" + (key === today ? " is-today" : "");
+      for (var slotHour = startHour; slotHour < endHour; slotHour++) {
+        (function (selectedHour) {
+          var slot = document.createElement("button");
+          slot.type = "button";
+          slot.className = "week-calendar__slot";
+          slot.style.top = ((selectedHour - startHour) * hourHeight) + "px";
+          slot.setAttribute("aria-label", formatNiceDate(date) + " " + pad2(selectedHour) + ":00");
+          slot.onclick = function () {
+            Router.go("calendar", { day: key, time: pad2(selectedHour) + ":00" });
+          };
+          column.appendChild(slot);
+        })(slotHour);
+      }
+
+      (eventsByDay[key] || []).forEach(function (event) {
+        var startMinutes = hmToMinutes(event.time);
+        if (startMinutes === null) return;
+        var endMinutes = hmToMinutes(eventEnd(event));
+        if (endMinutes === null || endMinutes <= startMinutes) endMinutes = startMinutes + 60;
+        var visibleStart = Math.max(startMinutes, startHour * 60);
+        var visibleEnd = Math.min(endMinutes, endHour * 60);
+        if (visibleEnd <= visibleStart) return;
+        var eventButton = document.createElement("button");
+        eventButton.type = "button";
+        eventButton.className = "week-calendar__event week-calendar__event--" + event.type
+          + (event.done ? " is-done" : "");
+        eventButton.style.top = (((visibleStart - startHour * 60) / 60) * hourHeight + 2) + "px";
+        eventButton.style.height = Math.max(22, ((visibleEnd - visibleStart) / 60) * hourHeight - 4) + "px";
+        eventButton.setAttribute("aria-label", event.title + ", " + event.time + " – " + eventEnd(event));
+        var eventTime = document.createElement("span");
+        eventTime.textContent = event.time;
+        var eventTitle = document.createElement("strong");
+        eventTitle.textContent = event.title;
+        eventButton.appendChild(eventTime);
+        eventButton.appendChild(eventTitle);
+        eventButton.onclick = function (ev) {
+          ev.stopPropagation();
+          Router.go("calendar", { day: key, editType: event.type, editId: event.id });
+        };
+        column.appendChild(eventButton);
+      });
+
+      if (key === today) {
+        var nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
+        if (nowMinutes >= startHour * 60 && nowMinutes <= endHour * 60) {
+          var nowLine = document.createElement("span");
+          nowLine.className = "week-calendar__now";
+          nowLine.style.top = (((nowMinutes - startHour * 60) / 60) * hourHeight) + "px";
+          column.appendChild(nowLine);
+        }
+      }
+      body.appendChild(column);
+    });
+
+    canvas.appendChild(body);
+    scroll.appendChild(canvas);
+    card.appendChild(scroll);
+    setTimeout(function () {
+      var focusHour = Math.max(startHour, Math.min(endHour - 4, nowDate.getHours() - 1));
+      scroll.scrollTop = Math.max(0, (focusHour - startHour) * hourHeight);
+      var todayIndex = bounds.days.findIndex(function (date) { return dayKey(date) === today; });
+      if (todayIndex > 3) scroll.scrollLeft = Math.max(0, (todayIndex - 2) * 96);
+    }, 0);
+    return card;
+  }
+
   function segmented(initialKey, items, onChange) {
     var host = document.createElement("div");
     host.className = "segment";
@@ -1333,8 +1538,8 @@
         ? (nextBlock.start + " · " + nextBlock.title)
         : (dayBlocks.length ? "All blocks done" : "No blocks planned");
       var upcomingEvents = await upcomingCalendarEvents(nowD, 14, 5);
-      var currentMonthBounds = monthBounds(nowD);
-      var currentMonthEvents = await listCalendarEvents(currentMonthBounds.start, currentMonthBounds.end);
+      var currentWeekBounds = weekBounds(nowD);
+      var currentWeekEvents = await listCalendarEvents(currentWeekBounds.start, currentWeekBounds.end);
       var nextEvent = upcomingEvents.length ? upcomingEvents[0] : null;
 
       // Finance
@@ -1371,7 +1576,7 @@
       root.className = "dash";
 
       // ---- Calendar overview ----
-      root.appendChild(dashboardCalendarCard(nowD, currentMonthEvents));
+      root.appendChild(dashboardWeekCalendarCard(nowD, currentWeekEvents));
 
       // ---- Primary modules ----
       var modSection = document.createElement("div");
@@ -2020,6 +2225,9 @@
       State.s.today = today;
       State.s.month = monthKey(new Date());
       var requestedDay = params && params.get("day");
+      var requestedTime = params && params.get("time");
+      var requestedEditType = params && params.get("editType");
+      var requestedEditId = params && params.get("editId");
       var selectedDate = parseDayKey(requestedDay) || parseDayKey(today) || new Date();
       var selectedDay = dayKey(selectedDate);
       var bounds = monthBounds(selectedDate);
@@ -2132,6 +2340,12 @@
       root.appendChild(monthCard);
 
       var selectedEvents = eventsByDay[selectedDay] || [];
+      var editingEvent = null;
+      if (requestedEditId && requestedEditType) {
+        editingEvent = selectedEvents.find(function (event) {
+          return event.id === requestedEditId && event.type === requestedEditType;
+        }) || null;
+      }
       var agendaCard = document.createElement("div");
       agendaCard.className = "glass card";
       agendaCard.appendChild(textLine("Agenda", formatNiceDate(selectedDate)));
@@ -2173,7 +2387,7 @@
           var eventMeta = document.createElement("div");
           eventMeta.className = "calendar-event__meta";
           eventMeta.textContent = (event.time || tr("All day"))
-            + (event.end ? (" – " + event.end) : "")
+            + (event.time ? (" – " + eventEnd(event)) : "")
             + (event.note ? (" · " + event.note) : "");
           eventBody.appendChild(eventTitle);
           eventBody.appendChild(eventMeta);
@@ -2183,6 +2397,15 @@
           badge.className = "calendar-event__badge calendar-event__badge--" + event.type;
           badge.textContent = tr(event.type === "block" ? "Block" : "Reminder");
           item.appendChild(badge);
+
+          var edit = document.createElement("button");
+          edit.className = "calendar-event__edit";
+          edit.type = "button";
+          edit.textContent = tr("Edit");
+          edit.onclick = function () {
+            Router.go("calendar", { day: selectedDay, editType: event.type, editId: event.id });
+          };
+          item.appendChild(edit);
 
           if (event.type === "reminder") {
             var remove = document.createElement("button");
@@ -2205,28 +2428,76 @@
 
       var addCard = document.createElement("div");
       addCard.className = "glass card";
-      addCard.appendChild(textLine("Add Reminder", formatNiceDate(selectedDate)));
-      var titleInput = makeInput("text", "", tr("e.g., Call the dentist"));
-      var timeInput = makeInput("time", "09:00");
-      var noteInput = labeledTextarea("Note", "", "Optional details");
+      addCard.appendChild(textLine(editingEvent ? tr("Edit Entry") : tr("Add an entry"), formatNiceDate(selectedDate)));
+      var defaultStart = requestedTime && hmToMinutes(requestedTime) !== null
+        ? requestedTime
+        : (selectedDay === today ? pad2(Math.min(22, new Date().getHours() + 1)) + ":00" : "09:00");
+      var initialStart = editingEvent ? (editingEvent.time || defaultStart) : defaultStart;
+      var initialEnd = editingEvent ? eventEnd(editingEvent) : addMinutesToHM(defaultStart, 60);
+      var titleInput = makeInput("text", editingEvent ? editingEvent.title : "", tr("e.g., Call the dentist"));
+      var dateInput = makeInput("date", editingEvent ? editingEvent.dayKey : selectedDay);
+      var timeInput = makeInput("time", initialStart);
+      var endInput = makeInput("time", initialEnd);
+      var noteInput = labeledTextarea("Note", editingEvent ? editingEvent.note : "", "Optional details");
+      var endWasEdited = !!editingEvent;
+      timeInput.onchange = function () {
+        if (!endWasEdited || hmToMinutes(endInput.value) <= hmToMinutes(timeInput.value)) {
+          endInput.value = addMinutesToHM(timeInput.value, 60);
+          endWasEdited = false;
+        }
+      };
+      endInput.onchange = function () { endWasEdited = true; };
       addCard.appendChild(fieldWrap("Title", titleInput));
-      addCard.appendChild(fieldWrap("Time", timeInput));
-      addCard.appendChild(noteInput.wrap);
+      addCard.appendChild(fieldWrap("Date", dateInput));
+      var entryTimeRow = document.createElement("div");
+      entryTimeRow.className = "row";
+      entryTimeRow.appendChild(fieldWrap("Start", timeInput));
+      entryTimeRow.appendChild(fieldWrap("End", endInput));
+      addCard.appendChild(entryTimeRow);
+      if (!editingEvent || editingEvent.type === "reminder") addCard.appendChild(noteInput.wrap);
       addCard.appendChild(spacer(12));
       var addReminderButton = document.createElement("button");
       addReminderButton.className = "btnPrimary";
       addReminderButton.type = "button";
-      addReminderButton.textContent = tr("Add Reminder");
+      addReminderButton.textContent = editingEvent ? tr("Save Changes") : tr("Add an entry");
       addReminderButton.onclick = async function () {
         try {
-          await DB.addReminder(selectedDay, timeInput.value, titleInput.value, noteInput.textarea.value);
-          toast("Reminder added.");
-          Router.render();
+          var startMinutes = hmToMinutes(timeInput.value);
+          var endMinutes = hmToMinutes(endInput.value);
+          if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+            throw new Error("End time must be after start time");
+          }
+          if (editingEvent && editingEvent.type === "block") {
+            await DB.updateBlock(editingEvent.id, {
+              dayKey: dateInput.value, start: timeInput.value,
+              end: endInput.value, title: titleInput.value
+            });
+          } else if (editingEvent) {
+            await DB.updateReminder(editingEvent.id, {
+              dayKey: dateInput.value, time: timeInput.value, end: endInput.value,
+              title: titleInput.value, note: noteInput.textarea.value
+            });
+          } else {
+            await DB.addReminder(
+              dateInput.value, timeInput.value, endInput.value,
+              titleInput.value, noteInput.textarea.value
+            );
+          }
+          toast(editingEvent ? "Entry updated." : "Reminder added.");
+          Router.go("calendar", { day: dateInput.value });
         } catch (e) {
           toast(e && e.message === "Reminder title required" ? "Title required." : (e && e.message ? e.message : "Add failed."));
         }
       };
       addCard.appendChild(addReminderButton);
+      if (editingEvent) {
+        var cancelEdit = document.createElement("button");
+        cancelEdit.className = "btnGhost calendar-entry__cancel";
+        cancelEdit.type = "button";
+        cancelEdit.textContent = tr("Cancel");
+        cancelEdit.onclick = function () { Router.go("calendar", { day: selectedDay }); };
+        addCard.appendChild(cancelEdit);
+      }
       root.appendChild(addCard);
 
       container.appendChild(root);
@@ -2287,6 +2558,14 @@
       var titleI = makeInput("text", "", "e.g., Deep Work");
       var startI = makeInput("time", "09:00");
       var endI = makeInput("time", "10:00");
+      var blockEndWasEdited = false;
+      startI.onchange = function () {
+        if (!blockEndWasEdited || hmToMinutes(endI.value) <= hmToMinutes(startI.value)) {
+          endI.value = addMinutesToHM(startI.value, 60);
+          blockEndWasEdited = false;
+        }
+      };
+      endI.onchange = function () { blockEndWasEdited = true; };
       addCard.appendChild(fieldWrap("Title", titleI));
       var timeRow = document.createElement("div");
       timeRow.className = "row";
@@ -2308,10 +2587,13 @@
       addCard.appendChild(addBtn);
       root.appendChild(addCard);
 
-      // Templates
+      // Reusable day structures
       var tplCard = document.createElement("div");
       tplCard.className = "glass card";
-      tplCard.appendChild(textLine("Templates", "One-tap day plans"));
+      tplCard.appendChild(textLine(tr("Day Structures"), tr("Reusable day plans")));
+      tplCard.appendChild(spacer(10));
+      var structureDate = makeInput("date", today);
+      tplCard.appendChild(fieldWrap("Apply to date", structureDate));
       tplCard.appendChild(spacer(10));
 
       var templates = await DB.listTemplates();
@@ -2356,11 +2638,12 @@
           var load = document.createElement("button");
           load.className = "btnGhost";
           load.type = "button";
-          load.textContent = tr("Load");
+          load.textContent = tr("Use");
           load.onclick = async function () {
-            var n = await DB.applyTemplateToDay(t.id, today);
-            toast("Loaded " + n + " blocks.");
-            Router.render();
+            var targetDay = parseDayKey(structureDate.value) ? structureDate.value : today;
+            await DB.applyTemplateToDay(t.id, targetDay);
+            toast("Day structure applied.");
+            Router.go("calendar", { day: targetDay });
           };
           var del = document.createElement("button");
           del.className = "btnGhost";
@@ -2387,7 +2670,7 @@
         hrt.className = "hr";
         tplCard.appendChild(hrt);
         var nameI = makeInput("text", "", "Template name (e.g., Workday)");
-        tplCard.appendChild(fieldWrap("Save today as template", nameI));
+        tplCard.appendChild(fieldWrap("Save today as structure", nameI));
         tplCard.appendChild(spacer(10));
         var saveTpl = document.createElement("button");
         saveTpl.className = "btnGhost";

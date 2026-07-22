@@ -594,6 +594,172 @@ select.select {
 .dashboard-calendar__event:hover,
 .dashboard-calendar__more:hover { color: var(--color-text-primary); }
 
+/* Dashboard hourly week view */
+.week-calendar { overflow: hidden; }
+.week-calendar__hint {
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  font-weight: 500;
+}
+.week-calendar__scroll {
+  width: 100%;
+  max-height: 520px;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-small);
+  overscroll-behavior-inline: contain;
+}
+.week-calendar__canvas {
+  min-width: 748px;
+  background: var(--color-surface-primary);
+}
+.week-calendar__days,
+.week-calendar__body {
+  display: grid;
+  grid-template-columns: 44px repeat(7, minmax(96px, 1fr));
+}
+.week-calendar__days {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  border-bottom: 1px solid var(--color-border-primary);
+  background: var(--color-surface-primary);
+}
+.week-calendar__corner {
+  border-right: 1px solid var(--color-divider);
+}
+.week-calendar__day {
+  appearance: none;
+  min-height: 54px;
+  padding: 7px 3px;
+  border: 0;
+  border-right: 1px solid var(--color-divider);
+  background: transparent;
+  color: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+}
+.week-calendar__day span {
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+.week-calendar__day strong {
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+.week-calendar__day.is-today strong {
+  background: var(--color-text-primary);
+  color: #fff;
+}
+.week-calendar__body { position: relative; }
+.week-calendar__times {
+  position: relative;
+  border-right: 1px solid var(--color-divider);
+}
+.week-calendar__hour {
+  position: absolute;
+  right: 6px;
+  color: var(--color-text-subtle);
+  font-size: 9px;
+  font-weight: 550;
+}
+.week-calendar__column {
+  position: relative;
+  border-right: 1px solid var(--color-divider);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 47px,
+    var(--color-divider) 47px,
+    var(--color-divider) 48px
+  );
+}
+.week-calendar__column.is-today {
+  background-color: rgba(18, 18, 18, 0.025);
+}
+.week-calendar__slot {
+  appearance: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.week-calendar__slot:hover { background: rgba(18, 18, 18, 0.035); }
+.week-calendar__event {
+  appearance: none;
+  position: absolute;
+  z-index: 3;
+  left: 3px;
+  right: 3px;
+  min-height: 22px;
+  overflow: hidden;
+  padding: 4px 5px;
+  border: 0;
+  border-left: 3px solid currentColor;
+  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  color: var(--color-status-information);
+  text-align: left;
+  cursor: pointer;
+}
+.week-calendar__event--block { background: rgba(78, 102, 120, 0.15); }
+.week-calendar__event--reminder {
+  background: rgba(184, 135, 70, 0.17);
+  color: #805b2e;
+}
+.week-calendar__event span {
+  font-size: 8.5px;
+  font-weight: 650;
+  line-height: 1.1;
+}
+.week-calendar__event strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.week-calendar__event.is-done {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.week-calendar__now {
+  position: absolute;
+  z-index: 4;
+  left: -3px;
+  right: 0;
+  height: 1px;
+  background: var(--color-status-critical);
+  pointer-events: none;
+}
+.week-calendar__now::before {
+  position: absolute;
+  top: -3px;
+  left: -1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-status-critical);
+  content: "";
+}
+
 /* Module tiles */
 .tilegrid {
   display: grid;
@@ -800,6 +966,21 @@ select.select {
   cursor: pointer;
 }
 .calendar-event__remove:hover { background: var(--color-surface-tertiary); }
+.calendar-event__edit {
+  appearance: none;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-primary);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.calendar-event__edit:hover { color: var(--color-text-primary); }
+.calendar-entry__cancel { margin-left: var(--space-2); }
 
 .agenda-preview {
   appearance: none;
