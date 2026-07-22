@@ -411,6 +411,15 @@
     return Number(routine.weekday) === date.getDay();
   }
 
+  function routineRepeatLabel(routine) {
+    var recurrence = routine.recurrence || (
+      routine.weekday !== null && typeof routine.weekday !== "undefined" ? "weekly" : "daily"
+    );
+    if (recurrence === "daily") return tr("Daily");
+    if (recurrence === "monthly") return tr("Monthly");
+    return tr("Weekly");
+  }
+
   function nextRoutineOccurrence(routines, fromDate) {
     var nowMinutes = fromDate.getHours() * 60 + fromDate.getMinutes();
     for (var offset = 0; offset < 366; offset++) {
@@ -457,7 +466,7 @@
           events.push({
             type: "routine", id: routine.id, dayKey: dayKey(date),
             time: routine.start, end: routine.end || addMinutesToHM(routine.start, 60),
-            title: routine.name, note: tr("Repeats weekly"), done: false
+            title: routine.name, note: routineRepeatLabel(routine), done: false
           });
         });
       }
