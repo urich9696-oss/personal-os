@@ -411,6 +411,19 @@
     return Number(routine.weekday) === date.getDay();
   }
 
+  function nextRoutineOccurrence(routines, fromDate) {
+    var nowMinutes = fromDate.getHours() * 60 + fromDate.getMinutes();
+    for (var offset = 0; offset < 366; offset++) {
+      var date = addDays(fromDate, offset);
+      var matches = (routines || []).filter(function (routine) {
+        if (routine.active === false || !routine.start || !routineOccursOnDate(routine, date)) return false;
+        return offset > 0 || hmToMinutes(routine.start) >= nowMinutes;
+      }).sort(function (a, b) { return (a.start || "").localeCompare(b.start || ""); });
+      if (matches.length) return { routine: matches[0], date: date };
+    }
+    return null;
+  }
+
   function formatMonthTitle(date) {
     try { return new Intl.DateTimeFormat(localeTag(), { month: "long", year: "numeric" }).format(date); }
     catch (e) { return monthKey(date); }
@@ -507,6 +520,49 @@
     el.classList.add("is-show");
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.classList.remove("is-show"); }, 2200);
+  }
+
+  function openQuickSheet(title, renderBody) {
+    var overlay = document.createElement("div");
+    overlay.className = "sheet-overlay";
+    var sheet = document.createElement("section");
+    sheet.className = "quick-sheet";
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-modal", "true");
+    sheet.setAttribute("aria-label", title);
+    var handle = document.createElement("span");
+    handle.className = "quick-sheet__handle";
+    var header = document.createElement("div");
+    header.className = "quick-sheet__header";
+    var heading = document.createElement("strong");
+    heading.textContent = title;
+    var closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "quick-sheet__close";
+    closeButton.textContent = tr("Cancel");
+    header.appendChild(heading);
+    header.appendChild(closeButton);
+    var body = document.createElement("div");
+    body.className = "quick-sheet__body";
+    sheet.appendChild(handle);
+    sheet.appendChild(header);
+    sheet.appendChild(body);
+    overlay.appendChild(sheet);
+
+    function close() {
+      document.removeEventListener("keydown", onKeydown);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    function onKeydown(event) { if (event.key === "Escape") close(); }
+    closeButton.onclick = close;
+    overlay.onclick = function (event) { if (event.target === overlay) close(); };
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(overlay);
+    renderBody(body, close);
+    setTimeout(function () {
+      var focusable = body.querySelector("input, textarea, select, button");
+      if (focusable) focusable.focus();
+    }, 30);
   }
 
   // ---------- View timers (cleared on every route render) ----------
@@ -905,20 +961,45 @@
 
   function makeInput(type, value, placeholder, attrs) {
     if (type === "time") {
-      var timeSelect = document.createElement("select");
-      timeSelect.className = "input select time-input";
-      timeSelect.setAttribute("aria-label", tr("Time"));
-      for (var minute = 0; minute < 24 * 60; minute++) {
-        var timeOption = document.createElement("option");
-        timeOption.value = minutesToHM(minute);
-        timeOption.textContent = timeOption.value;
-        timeSelect.appendChild(timeOption);
+      var timePicker = document.createElement("div");
+      timePicker.className = "input time-picker";
+      var hourSelect = document.createElement("select");
+      hourSelect.className = "time-picker__part";
+      hourSelect.setAttribute("aria-label", "Hour");
+      for (var hour = 0; hour < 24; hour++) {
+        var hourOption = document.createElement("option");
+        hourOption.value = pad2(hour);
+        hourOption.textContent = hourOption.value;
+        hourSelect.appendChild(hourOption);
       }
-      timeSelect.value = value || "00:00";
+      var separator = document.createElement("span");
+      separator.className = "time-picker__separator";
+      separator.textContent = ":";
+      var minuteSelect = document.createElement("select");
+      minuteSelect.className = "time-picker__part";
+      minuteSelect.setAttribute("aria-label", "Minute");
+      for (var minute = 0; minute < 60; minute++) {
+        var minuteOption = document.createElement("option");
+        minuteOption.value = pad2(minute);
+        minuteOption.textContent = minuteOption.value;
+        minuteSelect.appendChild(minuteOption);
+      }
+      timePicker.appendChild(hourSelect);
+      timePicker.appendChild(separator);
+      timePicker.appendChild(minuteSelect);
+      Object.defineProperty(timePicker, "value", {
+        get: function () { return hourSelect.value + ":" + minuteSelect.value; },
+        set: function (nextValue) {
+          var parts = String(nextValue || "00:00").split(":");
+          hourSelect.value = parts[0] || "00";
+          minuteSelect.value = parts[1] || "00";
+        }
+      });
+      timePicker.value = value || "00:00";
       if (attrs) {
-        Object.keys(attrs).forEach(function (key) { timeSelect.setAttribute(key, attrs[key]); });
+        Object.keys(attrs).forEach(function (key) { timePicker.setAttribute(key, attrs[key]); });
       }
-      return timeSelect;
+      return timePicker;
     }
     var i = document.createElement("input");
     i.className = "input";
@@ -989,6 +1070,7 @@
     maintenance: '<path d="M3 12h4l2.5 6 5-12 2.5 6H21"/>',
     list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.5"/><circle cx="4.5" cy="12" r="1.5"/><circle cx="4.5" cy="18" r="1.5"/>',
     journal: '<path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v18H7.5A2.5 2.5 0 0 0 5 22.5z"/><path d="M5 4.5v18M9 7h7M9 11h7"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
     finance: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M15 14h3"/>',
     calendar: '<rect x="3.5" y="5.5" width="17" height="15" rx="2"/><path d="M7.5 3v5M16.5 3v5M3.5 10h17"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
     vault: '<rect x="3.5" y="4.5" width="17" height="4" rx="1"/><path d="M5.5 8.5V19a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V8.5"/><path d="M10 12.5h4"/>',
@@ -1714,6 +1796,7 @@
       var completedRoutines = todayRoutines.filter(function (routine) {
         return State.isTargetChecked("habit", routine.id);
       }).length;
+      var nextRoutine = nextRoutineOccurrence(State.s.habits, nowD);
       var financeSlices = buildExpenseSlices(dashboardTransactions, dashboardRecurring);
 
       var root = document.createElement("div");
@@ -1740,8 +1823,45 @@
         return tile;
       }
 
+      function addQuickButton(tile, label, onClick) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "today-tile__add";
+        button.setAttribute("aria-label", label);
+        button.appendChild(svgIcon("plus"));
+        button.onclick = onClick;
+        tile.appendChild(button);
+      }
+
       var reminderTile = makeTodayTile(tr("Reminder"), "list", "calendar");
       reminderTile.classList.add("today-tile--reminders");
+      addQuickButton(reminderTile, tr("Add Reminder"), function () {
+        openQuickSheet(tr("Add Reminder"), function (body, close) {
+          var titleField = labeledInput("Title", "", "e.g., Call the dentist");
+          var quickStart = makeInput("time", pad2(Math.min(23, nowD.getHours() + 1)) + ":00");
+          var quickEnd = makeInput("time", addMinutesToHM(quickStart.value, 60));
+          quickStart.onchange = function () { quickEnd.value = addMinutesToHM(quickStart.value, 60); };
+          var quickTimes = document.createElement("div");
+          quickTimes.className = "row";
+          quickTimes.appendChild(fieldWrap("Start", quickStart));
+          quickTimes.appendChild(fieldWrap("End", quickEnd));
+          var save = document.createElement("button");
+          save.type = "button";
+          save.className = "btnPrimary";
+          save.textContent = tr("Add Reminder");
+          save.onclick = async function () {
+            try {
+              await DB.addReminder(today, quickStart.value, quickEnd.value, titleField.input.value, "");
+              close();
+              toast("Reminder added.");
+              Router.render();
+            } catch (e) { toast("Title required."); }
+          };
+          body.appendChild(titleField.wrap);
+          body.appendChild(quickTimes);
+          body.appendChild(save);
+        });
+      });
       if (!todayReminders.length) {
         var reminderEmpty = document.createElement("div");
         reminderEmpty.className = "today-tile__empty";
@@ -1774,19 +1894,90 @@
       todayGrid.appendChild(reminderTile);
 
       var routineTile = makeTodayTile(tr("Routines"), "maintenance", "maintenance");
+      addQuickButton(routineTile, tr("Scheduled Routine"), function () {
+        openQuickSheet(tr("Scheduled Routine"), function (body, close) {
+          var routineName = labeledInput("Name", "", "e.g., Shopping");
+          var quickDayWrap;
+          var quickMonthWrap;
+          var quickRecurrence = makeSelect([
+            { code: "daily", label: tr("Daily") },
+            { code: "weekly", label: tr("Weekly") },
+            { code: "monthly", label: tr("Monthly") }
+          ], "weekly", function (value) {
+            if (quickDayWrap) quickDayWrap.style.display = value === "weekly" ? "" : "none";
+            if (quickMonthWrap) quickMonthWrap.style.display = value === "monthly" ? "" : "none";
+          });
+          var quickDay = makeSelect(weekdayOptions(), String(nowD.getDay()), function () {});
+          var quickMonthday = makeInput("number", String(nowD.getDate()), "", { min: "1", max: "31" });
+          var quickStart = makeInput("time", pad2(Math.min(23, nowD.getHours() + 1)) + ":00");
+          var quickEnd = makeInput("time", addMinutesToHM(quickStart.value, 60));
+          quickStart.onchange = function () { quickEnd.value = addMinutesToHM(quickStart.value, 60); };
+          var quickTimes = document.createElement("div");
+          quickTimes.className = "row";
+          quickTimes.appendChild(fieldWrap("Start", quickStart));
+          quickTimes.appendChild(fieldWrap("End", quickEnd));
+          var save = document.createElement("button");
+          save.type = "button";
+          save.className = "btnPrimary";
+          save.textContent = tr("Add Habit");
+          save.onclick = async function () {
+            try {
+              await State.addHabit(
+                routineName.input.value, quickRecurrence.value, quickDay.value,
+                quickMonthday.value, quickStart.value, quickEnd.value
+              );
+              close();
+              toast("Habit added.");
+              Router.render();
+            } catch (e) { toast("Habit name required."); }
+          };
+          body.appendChild(routineName.wrap);
+          body.appendChild(fieldWrap("Repeat", quickRecurrence));
+          quickDayWrap = fieldWrap("Weekday", quickDay);
+          quickMonthWrap = fieldWrap("Day of month", quickMonthday);
+          quickMonthWrap.style.display = "none";
+          body.appendChild(quickDayWrap);
+          body.appendChild(quickMonthWrap);
+          body.appendChild(quickTimes);
+          body.appendChild(save);
+        });
+      });
       var routineValue = document.createElement("div");
-      routineValue.className = "today-tile__value";
-      routineValue.textContent = todayRoutines.length
-        ? (completedRoutines + " / " + todayRoutines.length)
-        : "—";
+      routineValue.className = "today-tile__next";
+      routineValue.textContent = nextRoutine ? nextRoutine.routine.name : tr("No active items yet");
       var routineMeta = document.createElement("div");
       routineMeta.className = "today-tile__meta";
-      routineMeta.textContent = todayRoutines.length ? tr("Today Checklist") : tr("No active items yet");
+      routineMeta.textContent = nextRoutine
+        ? ((dayKey(nextRoutine.date) === today ? tr("Today") : formatNiceDate(nextRoutine.date))
+          + " · " + nextRoutine.routine.start + "–" + (nextRoutine.routine.end || addMinutesToHM(nextRoutine.routine.start, 60)))
+        : tr("Add Items");
       routineTile.appendChild(routineValue);
       routineTile.appendChild(routineMeta);
       todayGrid.appendChild(routineTile);
 
       var journalTile = makeTodayTile(tr("Journal"), "journal", "alignment");
+      addQuickButton(journalTile, tr("Journal"), function () {
+        openQuickSheet(tr("Journal"), function (body, close) {
+          var existing = mJournal && mJournal.payload ? mJournal.payload : {};
+          var focusField = labeledTextarea("Primary Focus", existing.focus || "", "What matters most today?");
+          var save = document.createElement("button");
+          save.type = "button";
+          save.className = "btnPrimary";
+          save.textContent = tr("Save Morning");
+          save.onclick = async function () {
+            await State.saveMorning({
+              focus: focusField.textarea.value.trim(),
+              gratitude: existing.gratitude || "",
+              intention: existing.intention || ""
+            });
+            close();
+            toast("Morning saved.");
+            Router.render();
+          };
+          body.appendChild(focusField.wrap);
+          body.appendChild(save);
+        });
+      });
       var journalValue = document.createElement("div");
       journalValue.className = "today-tile__status";
       journalValue.innerHTML = '<span class="' + (mJournal ? "is-complete" : "") + '">Morning</span>'
