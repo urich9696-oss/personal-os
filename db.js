@@ -261,8 +261,16 @@
     return all;
   }
 
-  async function addHabit(name) {
-    var row = { id: uid("habit"), name: String(name || "").trim(), active: true, createdAt: Date.now() };
+  async function addHabit(name, weekday, start, end) {
+    var row = {
+      id: uid("habit"),
+      name: String(name || "").trim(),
+      weekday: weekday === null || typeof weekday === "undefined" || weekday === "" ? null : Number(weekday),
+      start: String(start || "").trim(),
+      end: String(end || "").trim(),
+      active: true,
+      createdAt: Date.now()
+    };
     if (!row.name) throw new Error("Habit name required");
     await put("habits", row);
     return row;

@@ -84,6 +84,9 @@
       "Advanced reflection": "Vertiefende Reflexion",
       "One thing for tomorrow": "Eine Sache für morgen",
       "Journal Archive": "Journal-Archiv",
+      "Scheduled Routine": "Geplante Routine",
+      "Repeats weekly": "Wiederholt sich wöchentlich",
+      "Weekday": "Wochentag",
 
       // Module subtitles / instructions
       "Plan your day in time blocks. Load a template to start fast.": "Plane deinen Tag in Zeitblöcken. Lade eine Vorlage für einen schnellen Start.",
@@ -354,6 +357,21 @@
     }
   }
 
+  function weekdayOptions() {
+    var out = [];
+    var mondayFirst = effectiveLang() === "de";
+    var first = mondayFirst ? 1 : 0;
+    for (var i = 0; i < 7; i++) {
+      var day = (first + i) % 7;
+      var date = new Date(2023, 0, 1 + day, 12, 0, 0, 0);
+      out.push({
+        code: String(day),
+        label: new Intl.DateTimeFormat(localeTag(), { weekday: "long" }).format(date)
+      });
+    }
+    return out;
+  }
+
   function formatMonthTitle(date) {
     try { return new Intl.DateTimeFormat(localeTag(), { month: "long", year: "numeric" }).format(date); }
     catch (e) { return monthKey(date); }
@@ -362,7 +380,8 @@
   async function listCalendarEvents(startDayKey, endDayKey) {
     var results = await Promise.all([
       DB.listBlocksByRange(startDayKey, endDayKey),
-      DB.listRemindersByRange(startDayKey, endDayKey)
+      DB.listRemindersByRange(startDayKey, endDayKey),
+      DB.listHabits()
     ]);
     var events = [];
     results[0].forEach(function (b) {
@@ -377,6 +396,21 @@
         end: r.end || "", title: r.title, note: r.note || "", done: !!r.done
       });
     });
+    var startDate = parseDayKey(startDayKey);
+    var endDate = parseDayKey(endDayKey);
+    if (startDate && endDate) {
+      for (var date = startDate; date <= endDate; date = addDays(date, 1)) {
+        results[2].forEach(function (routine) {
+          if (routine.active === false || routine.weekday === null || typeof routine.weekday === "undefined" || !routine.start) return;
+          if (Number(routine.weekday) !== date.getDay()) return;
+          events.push({
+            type: "routine", id: routine.id, dayKey: dayKey(date),
+            time: routine.start, end: routine.end || addMinutesToHM(routine.start, 60),
+            title: routine.name, note: tr("Repeats weekly"), done: false
+          });
+        });
+      }
+    }
     events.sort(function (a, b) {
       var aTime = a.time || "00:00";
       var bTime = b.time || "00:00";
@@ -643,8 +677,14 @@
       return s.perf;
     }
 
-    async function addHabit(name) {
-      await DB.addHabit(name);
+    function habitAppliesToDay(habit, key) {
+      if (habit.weekday === null || typeof habit.weekday === "undefined") return true;
+      var date = parseDayKey(key);
+      return !!date && Number(habit.weekday) === date.getDay();
+    }
+
+    async function addHabit(name, weekday, start, end) {
+      await DB.addHabit(name, weekday, start, end);
       s.habits = await DB.listHabits();
       s.perf = computePerformanceLocal();
     }
@@ -668,7 +708,7 @@
     }
 
     function computePerformanceLocal() {
-      var activeHabits = s.habits.filter(function (h) { return !!h.active; });
+      var activeHabits = s.habits.filter(function (h) { return !!h.active && habitAppliesToDay(h, s.today); });
       var activeTasks = s.tasks.filter(function (t) { return !!t.active; });
       var total = activeHabits.length + activeTasks.length;
 
@@ -686,7 +726,7 @@
 
     async function computeMaintenanceSnapshot() {
       // Snapshot minimal summary
-      var activeHabits = (await DB.listHabits()).filter(function (h) { return !!h.active; });
+      var activeHabits = (await DB.listHabits()).filter(function (h) { return !!h.active && habitAppliesToDay(h, s.today); });
       var activeTasks = (await DB.listTasks()).filter(function (t) { return !!t.active; });
       var checks = await DB.listChecksForDay(s.today);
 
@@ -1490,7 +1530,8 @@
         eventButton.appendChild(eventTitle);
         eventButton.onclick = function (ev) {
           ev.stopPropagation();
-          Router.go("calendar", { day: key, editType: event.type, editId: event.id });
+          if (event.type === "routine") Router.go("maintenance");
+          else Router.go("calendar", { day: key, editType: event.type, editId: event.id });
         };
         column.appendChild(eventButton);
       });
@@ -2003,14 +2044,20 @@
       addCard.className = "glass card quick-add-card";
       addCard.appendChild(textLine("Add Items", "Create a routine or task"));
 
-      var habitName = labeledInput("New Habit", "", "e.g., Mobility (10 min)");
+      var habitName = labeledInput("Scheduled Routine", "", "e.g., Shopping list");
+      var todayDate = parseDayKey(State.s.today) || new Date();
+      var habitDay = makeSelect(weekdayOptions(), String(todayDate.getDay()), function () {});
+      var suggestedStart = pad2(Math.min(22, todayDate.getHours() + 1)) + ":00";
+      var habitStart = makeInput("time", suggestedStart);
+      var habitEnd = makeInput("time", addMinutesToHM(suggestedStart, 60));
+      habitStart.onchange = function () { habitEnd.value = addMinutesToHM(habitStart.value, 60); };
       var addHabitBtn = document.createElement("button");
       addHabitBtn.className = "btnGhost";
       addHabitBtn.type = "button";
       addHabitBtn.textContent = tr("Add Habit");
       addHabitBtn.onclick = async function () {
         try {
-          await State.addHabit(habitName.input.value);
+          await State.addHabit(habitName.input.value, habitDay.value, habitStart.value, habitEnd.value);
           habitName.input.value = "";
           toast("Habit added.");
           Router.render();
@@ -2018,6 +2065,12 @@
       };
 
       addCard.appendChild(habitName.wrap);
+      addCard.appendChild(fieldWrap("Weekday", habitDay));
+      var routineTimeRow = document.createElement("div");
+      routineTimeRow.className = "row";
+      routineTimeRow.appendChild(fieldWrap("Start", habitStart));
+      routineTimeRow.appendChild(fieldWrap("End", habitEnd));
+      addCard.appendChild(routineTimeRow);
       addCard.appendChild(addHabitBtn);
       addCard.appendChild(document.createElement("hr")).className = "hr";
 
@@ -2049,7 +2102,10 @@
       listWrap.className = "stack";
       listWrap.appendChild(spacer(6));
 
-      var habits = State.s.habits.filter(function (h) { return !!h.active; });
+      var todayWeekday = (parseDayKey(State.s.today) || new Date()).getDay();
+      var habits = State.s.habits.filter(function (h) {
+        return !!h.active && (h.weekday === null || typeof h.weekday === "undefined" || Number(h.weekday) === todayWeekday);
+      });
       var tasks = State.s.tasks.filter(function (t) { return !!t.active; });
 
       if (!habits.length && !tasks.length) {
@@ -2059,7 +2115,10 @@
         listCard.appendChild(p0);
       } else {
         for (var i = 0; i < habits.length; i++) {
-          listWrap.appendChild(makeCheckRow("habit", habits[i].id, habits[i].name, "Habit"));
+          var routineMeta = habits[i].start
+            ? (habits[i].start + " – " + (habits[i].end || addMinutesToHM(habits[i].start, 60)))
+            : "Habit";
+          listWrap.appendChild(makeCheckRow("habit", habits[i].id, habits[i].name, routineMeta));
         }
         for (var j = 0; j < tasks.length; j++) {
           listWrap.appendChild(makeCheckRow("task", tasks[j].id, tasks[j].name, (tasks[j].category || "Task")));
@@ -2089,7 +2148,15 @@
         manage.appendChild(p1);
       } else {
         for (var a = 0; a < allHabits.length; a++) {
-          manageList.appendChild(makeActiveRow("habit", allHabits[a].id, allHabits[a].name, !!allHabits[a].active));
+          var habitLabel = allHabits[a].name;
+          if (allHabits[a].weekday !== null && typeof allHabits[a].weekday !== "undefined") {
+            var matchingDay = weekdayOptions().find(function (option) {
+              return option.code === String(allHabits[a].weekday);
+            });
+            habitLabel += " · " + (matchingDay ? matchingDay.label : "")
+              + (allHabits[a].start ? (" " + allHabits[a].start + "–" + (allHabits[a].end || addMinutesToHM(allHabits[a].start, 60))) : "");
+          }
+          manageList.appendChild(makeActiveRow("habit", allHabits[a].id, habitLabel, !!allHabits[a].active));
         }
         for (var b = 0; b < allTasks.length; b++) {
           manageList.appendChild(makeActiveRow("task", allTasks[b].id, allTasks[b].name + " (" + (allTasks[b].category || "General") + ")", !!allTasks[b].active));
@@ -2278,7 +2345,7 @@
           if (dayEvents.length) {
             var dots = document.createElement("span");
             dots.className = "calendar__dots";
-            var hasBlock = dayEvents.some(function (event) { return event.type === "block"; });
+            var hasBlock = dayEvents.some(function (event) { return event.type === "block" || event.type === "routine"; });
             var hasReminder = dayEvents.some(function (event) { return event.type === "reminder" && !event.done; });
             if (hasBlock) {
               var blockDot = document.createElement("span");
@@ -2355,15 +2422,16 @@
 
           var badge = document.createElement("span");
           badge.className = "calendar-event__badge calendar-event__badge--" + event.type;
-          badge.textContent = tr(event.type === "block" ? "Block" : "Reminder");
+          badge.textContent = tr(event.type === "routine" ? "Routines" : (event.type === "block" ? "Block" : "Reminder"));
           item.appendChild(badge);
 
           var edit = document.createElement("button");
           edit.className = "calendar-event__edit";
           edit.type = "button";
-          edit.textContent = tr("Edit");
+          edit.textContent = event.type === "routine" ? tr("Routines") : tr("Edit");
           edit.onclick = function () {
-            Router.go("calendar", { day: selectedDay, editType: event.type, editId: event.id });
+            if (event.type === "routine") Router.go("maintenance");
+            else Router.go("calendar", { day: selectedDay, editType: event.type, editId: event.id });
           };
           item.appendChild(edit);
 
@@ -2374,8 +2442,9 @@
           remove.textContent = "×";
           remove.onclick = async function () {
             if (event.type === "block") await DB.deleteBlock(event.id);
+            else if (event.type === "routine") await DB.setHabitActive(event.id, false);
             else await DB.deleteReminder(event.id);
-            toast(event.type === "block" ? "Block removed." : "Reminder removed.");
+            toast(event.type === "routine" ? "Updated." : (event.type === "block" ? "Block removed." : "Reminder removed."));
             Router.render();
           };
           item.appendChild(remove);
