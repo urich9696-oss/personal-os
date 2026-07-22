@@ -1511,8 +1511,8 @@
     scroll.appendChild(canvas);
     card.appendChild(scroll);
     setTimeout(function () {
-      var focusHour = Math.max(startHour, Math.min(endHour - 4, nowDate.getHours() - 1));
-      scroll.scrollTop = Math.max(0, (focusHour - startHour) * hourHeight);
+      var focusHour = Math.max(startHour, Math.min(endHour - 3, nowDate.getHours()));
+      scroll.scrollTop = Math.max(0, 54 + (focusHour - startHour) * hourHeight);
       var todayIndex = bounds.days.findIndex(function (date) { return dayKey(date) === today; });
       if (todayIndex > 3) scroll.scrollLeft = Math.max(0, (todayIndex - 2) * 96);
     }, 0);
