@@ -10,7 +10,7 @@
   var _db = null;
 
   var DB_NAME = "personal_os_db";
-  var DB_VERSION = 2;
+  var DB_VERSION = 3;
 
   function open() {
     if (_db) return Promise.resolve(_db);
@@ -63,6 +63,12 @@
             // v2: recurring monthly expenses
             if (!db.objectStoreNames.contains("recurring")) {
               db.createObjectStore("recurring", { keyPath: "id" });
+            }
+
+            // v3: calendar reminders
+            if (!db.objectStoreNames.contains("reminders")) {
+              var s5 = db.createObjectStore("reminders", { keyPath: "id" });
+              s5.createIndex("by_day", "dayKey", { unique: false });
             }
           } catch (e) {
             reject(e);
@@ -138,6 +144,26 @@
         };
 
         req.onerror = function () { reject(req.error || new Error("cursor failed")); };
+      });
+    });
+  }
+
+  function listByIndexRange(storeName, indexName, startValue, endValue) {
+    return tx(storeName, "readonly").then(function (store) {
+      return new Promise(function (resolve, reject) {
+        var out = [];
+        var idx = store.index(indexName);
+        var range = IDBKeyRange.bound(startValue, endValue);
+        var req = idx.openCursor(range);
+
+        req.onsuccess = function () {
+          var cursor = req.result;
+          if (!cursor) return resolve(out);
+          out.push(cursor.value);
+          cursor.continue();
+        };
+
+        req.onerror = function () { reject(req.error || new Error("range cursor failed")); };
       });
     });
   }
@@ -331,7 +357,61 @@
     return all;
   }
 
+  async function listBlocksByRange(startDayKey, endDayKey) {
+    var all = await listByIndexRange("blocks", "by_day", startDayKey, endDayKey);
+    all.sort(function (a, b) {
+      return ((a.dayKey || "") + (a.start || "")).localeCompare((b.dayKey || "") + (b.start || ""));
+    });
+    return all;
+  }
+
   async function deleteBlock(id) { return del("blocks", id); }
+
+  // -------- Calendar: Reminders --------
+  async function addReminder(dayKey, time, title, note) {
+    var row = {
+      id: uid("reminder"),
+      dayKey: String(dayKey || "").trim(),
+      time: String(time || "").trim(),
+      title: String(title || "").trim(),
+      note: String(note || "").trim(),
+      done: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.dayKey)) throw new Error("Valid date required");
+    if (!row.title) throw new Error("Reminder title required");
+    await put("reminders", row);
+    return row;
+  }
+
+  async function listRemindersByDay(dayKey) {
+    var all = await listByIndex("reminders", "by_day", dayKey);
+    all.sort(function (a, b) {
+      return (a.time || "99:99").localeCompare(b.time || "99:99");
+    });
+    return all;
+  }
+
+  async function listRemindersByRange(startDayKey, endDayKey) {
+    var all = await listByIndexRange("reminders", "by_day", startDayKey, endDayKey);
+    all.sort(function (a, b) {
+      return ((a.dayKey || "") + (a.time || "99:99"))
+        .localeCompare((b.dayKey || "") + (b.time || "99:99"));
+    });
+    return all;
+  }
+
+  async function setReminderDone(id, done) {
+    var row = await get("reminders", id);
+    if (!row) throw new Error("Reminder not found");
+    row.done = !!done;
+    row.updatedAt = Date.now();
+    await put("reminders", row);
+    return row;
+  }
+
+  async function deleteReminder(id) { return del("reminders", id); }
 
   // -------- Today's Path: Templates (Batch 4) --------
   async function addTemplate(name, blocks) {
@@ -467,7 +547,7 @@
   // -------- OS Integrity: Export / Import / Reset (Batch 6) --------
   var ALL_STORES = [
     "meta", "journal", "vault", "habits", "tasks", "checks",
-    "blocks", "templates", "transactions", "budgets", "gatekeeper", "recurring"
+    "blocks", "reminders", "templates", "transactions", "budgets", "gatekeeper", "recurring"
   ];
 
   function clearStore(storeName) {
@@ -520,6 +600,7 @@
   DB.del = del;
   DB.listAll = listAll;
   DB.listByIndex = listByIndex;
+  DB.listByIndexRange = listByIndexRange;
 
   DB.metaGet = metaGet;
   DB.metaSet = metaSet;
@@ -544,7 +625,14 @@
 
   DB.addBlock = addBlock;
   DB.listBlocksByDay = listBlocksByDay;
+  DB.listBlocksByRange = listBlocksByRange;
   DB.deleteBlock = deleteBlock;
+
+  DB.addReminder = addReminder;
+  DB.listRemindersByDay = listRemindersByDay;
+  DB.listRemindersByRange = listRemindersByRange;
+  DB.setReminderDone = setReminderDone;
+  DB.deleteReminder = deleteReminder;
 
   DB.addTemplate = addTemplate;
   DB.listTemplates = listTemplates;
