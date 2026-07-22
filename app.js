@@ -62,6 +62,10 @@
       "Next": "Nächstes",
       "Budget": "Budget",
       "Upcoming": "Demnächst",
+      "Open calendar": "Kalender öffnen",
+      "Today’s agenda": "Heutige Agenda",
+      "Add an entry": "Eintrag hinzufügen",
+      "More entries": "Weitere Einträge",
 
       // Module subtitles / instructions
       "Plan your day in time blocks. Load a template to start fast.": "Plane deinen Tag in Zeitblöcken. Lade eine Vorlage für einen schnellen Start.",
@@ -1139,6 +1143,139 @@
     return row;
   }
 
+  function dashboardCalendarCard(nowDate, events) {
+    var today = dayKey(nowDate);
+    var bounds = monthBounds(nowDate);
+    var eventsByDay = {};
+    (events || []).forEach(function (event) {
+      if (!eventsByDay[event.dayKey]) eventsByDay[event.dayKey] = [];
+      eventsByDay[event.dayKey].push(event);
+    });
+
+    var card = document.createElement("section");
+    card.className = "dashboard-calendar";
+    card.setAttribute("aria-label", "Calendar");
+
+    var header = document.createElement("div");
+    header.className = "dashboard-calendar__header";
+    var heading = document.createElement("div");
+    var lead = document.createElement("div");
+    lead.className = "dashboard-calendar__lead";
+    lead.textContent = tr("Today") + " · " + formatNiceDate(nowDate);
+    var title = document.createElement("div");
+    title.className = "dashboard-calendar__title";
+    title.textContent = formatMonthTitle(nowDate);
+    heading.appendChild(lead);
+    heading.appendChild(title);
+    var open = document.createElement("button");
+    open.type = "button";
+    open.className = "dashboard-calendar__open";
+    open.textContent = tr("Open calendar");
+    open.onclick = function () { Router.go("calendar", { day: today }); };
+    header.appendChild(heading);
+    header.appendChild(open);
+    card.appendChild(header);
+
+    var weekdays = document.createElement("div");
+    weekdays.className = "calendar__weekdays";
+    var mondayFirst = effectiveLang() === "de";
+    var weekdayBase = new Date(2023, 0, mondayFirst ? 2 : 1, 12, 0, 0, 0);
+    for (var wi = 0; wi < 7; wi++) {
+      var weekday = document.createElement("div");
+      weekday.textContent = new Intl.DateTimeFormat(localeTag(), { weekday: "narrow" })
+        .format(addDays(weekdayBase, wi));
+      weekdays.appendChild(weekday);
+    }
+    card.appendChild(weekdays);
+
+    var grid = document.createElement("div");
+    grid.className = "calendar__grid dashboard-calendar__grid";
+    var firstWeekday = bounds.first.getDay();
+    var blankCount = mondayFirst ? ((firstWeekday + 6) % 7) : firstWeekday;
+    for (var blank = 0; blank < blankCount; blank++) {
+      var spacerCell = document.createElement("span");
+      spacerCell.className = "calendar__blank";
+      grid.appendChild(spacerCell);
+    }
+
+    for (var dayNumber = 1; dayNumber <= bounds.last.getDate(); dayNumber++) {
+      (function (number) {
+        var date = new Date(nowDate.getFullYear(), nowDate.getMonth(), number, 12, 0, 0, 0);
+        var key = dayKey(date);
+        var dayEvents = eventsByDay[key] || [];
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "calendar__day" + (key === today ? " calendar__day--today dashboard-calendar__day--today" : "");
+        button.setAttribute("aria-label", formatNiceDate(date)
+          + (key === today ? (", " + tr("Today")) : "")
+          + (dayEvents.length ? (", " + dayEvents.length + " events") : ""));
+        var numberEl = document.createElement("span");
+        numberEl.textContent = String(number);
+        button.appendChild(numberEl);
+        if (dayEvents.length) {
+          var dots = document.createElement("span");
+          dots.className = "calendar__dots";
+          if (dayEvents.some(function (event) { return event.type === "block"; })) {
+            var blockDot = document.createElement("span");
+            blockDot.className = "calendar__dot calendar__dot--block";
+            dots.appendChild(blockDot);
+          }
+          if (dayEvents.some(function (event) { return event.type === "reminder" && !event.done; })) {
+            var reminderDot = document.createElement("span");
+            reminderDot.className = "calendar__dot calendar__dot--reminder";
+            dots.appendChild(reminderDot);
+          }
+          button.appendChild(dots);
+        }
+        button.onclick = function () { Router.go("calendar", { day: key }); };
+        grid.appendChild(button);
+      })(dayNumber);
+    }
+    card.appendChild(grid);
+
+    var todayEvents = eventsByDay[today] || [];
+    var agenda = document.createElement("div");
+    agenda.className = "dashboard-calendar__agenda";
+    var agendaHeader = document.createElement("div");
+    agendaHeader.className = "dashboard-calendar__agenda-header";
+    agendaHeader.textContent = tr("Today’s agenda");
+    agenda.appendChild(agendaHeader);
+    if (!todayEvents.length) {
+      var empty = document.createElement("button");
+      empty.type = "button";
+      empty.className = "dashboard-calendar__empty";
+      empty.textContent = tr("Add an entry") + " →";
+      empty.onclick = function () { Router.go("calendar", { day: today }); };
+      agenda.appendChild(empty);
+    } else {
+      todayEvents.slice(0, 3).forEach(function (event) {
+        var row = document.createElement("button");
+        row.type = "button";
+        row.className = "dashboard-calendar__event" + (event.done ? " is-done" : "");
+        row.onclick = function () { Router.go("calendar", { day: today }); };
+        var time = document.createElement("span");
+        time.className = "dashboard-calendar__time";
+        time.textContent = event.time || tr("All day");
+        var eventTitle = document.createElement("span");
+        eventTitle.className = "dashboard-calendar__event-title";
+        eventTitle.textContent = event.title;
+        row.appendChild(time);
+        row.appendChild(eventTitle);
+        agenda.appendChild(row);
+      });
+      if (todayEvents.length > 3) {
+        var more = document.createElement("button");
+        more.type = "button";
+        more.className = "dashboard-calendar__more";
+        more.textContent = "+" + (todayEvents.length - 3) + " " + tr("More entries");
+        more.onclick = function () { Router.go("calendar", { day: today }); };
+        agenda.appendChild(more);
+      }
+    }
+    card.appendChild(agenda);
+    return card;
+  }
+
   function segmented(initialKey, items, onChange) {
     var host = document.createElement("div");
     host.className = "segment";
@@ -1176,6 +1313,9 @@
   var Screens = (function () {
 
     async function dashboard(container) {
+      var nowD = new Date();
+      State.s.today = dayKey(nowD);
+      State.s.month = monthKey(nowD);
       await State.loadMaintenance();
       var perf = State.s.perf;
 
@@ -1184,7 +1324,6 @@
 
       // Path — next time block
       var dayBlocks = await DB.listBlocksByDay(today);
-      var nowD = new Date();
       var nowHM = pad2(nowD.getHours()) + ":" + pad2(nowD.getMinutes());
       var nextBlock = null;
       for (var bi = 0; bi < dayBlocks.length; bi++) {
@@ -1194,10 +1333,9 @@
         ? (nextBlock.start + " · " + nextBlock.title)
         : (dayBlocks.length ? "All blocks done" : "No blocks planned");
       var upcomingEvents = await upcomingCalendarEvents(nowD, 14, 5);
+      var currentMonthBounds = monthBounds(nowD);
+      var currentMonthEvents = await listCalendarEvents(currentMonthBounds.start, currentMonthBounds.end);
       var nextEvent = upcomingEvents.length ? upcomingEvents[0] : null;
-      var nextCalendarText = nextEvent
-        ? (formatCalendarEventWhen(nextEvent, today) + " · " + nextEvent.title)
-        : tr("No upcoming events.");
 
       // Finance
       var budget = await DB.getBudget(month);
@@ -1232,43 +1370,8 @@
       var root = document.createElement("div");
       root.className = "dash";
 
-      // ---- Today / System status ----
-      var status = document.createElement("div");
-      status.className = "statuscard";
-      var lead = document.createElement("div");
-      lead.className = "statuscard__lead";
-      lead.textContent = tr("Today") + " · " + formatNiceDate(nowD);
-      var headline = document.createElement("div");
-      headline.className = "statuscard__headline";
-      if (perf.total && remainingItems > 0) headline.textContent = tr("Keep your system on track");
-      else if (nextEvent) headline.textContent = tr("Next") + ": " + nextEvent.title;
-      else if (!mJournal) headline.textContent = tr("Begin with your morning journal");
-      else headline.textContent = tr("You’re aligned for today");
-      status.appendChild(lead);
-      status.appendChild(headline);
-
-      var rows = document.createElement("div");
-      rows.className = "statuscard__rows";
-      function statusRow(label, value) {
-        var r = document.createElement("div");
-        r.className = "statusrow";
-        var l = document.createElement("div");
-        l.className = "statusrow__label";
-        l.textContent = label;
-        var v = document.createElement("div");
-        v.className = "statusrow__value";
-        v.textContent = value;
-        r.appendChild(l);
-        r.appendChild(v);
-        return r;
-      }
-      rows.appendChild(statusRow(tr("Priority"), perf.total
-        ? (perf.done + "/" + perf.total + " done today")
-        : "Set up Maintenance"));
-      rows.appendChild(statusRow(tr("Next"), nextCalendarText));
-      rows.appendChild(statusRow(tr("Budget"), budgetText));
-      status.appendChild(rows);
-      root.appendChild(status);
+      // ---- Calendar overview ----
+      root.appendChild(dashboardCalendarCard(nowD, currentMonthEvents));
 
       // ---- Primary modules ----
       var modSection = document.createElement("div");
@@ -1280,12 +1383,6 @@
       grid.appendChild(moduleTile({
         route: "path", icon: "path", name: "Path", wide: true,
         status: nextText
-      }));
-      grid.appendChild(moduleTile({
-        route: "calendar", icon: "calendar", name: "Calendar",
-        status: nextEvent
-          ? (formatCalendarEventWhen(nextEvent, today) + " · " + nextEvent.title)
-          : tr("No upcoming events.")
       }));
       grid.appendChild(moduleTile({
         route: "alignment", icon: "alignment", name: "Alignment",
@@ -1307,42 +1404,6 @@
       }));
       modSection.appendChild(grid);
       root.appendChild(modSection);
-
-      // ---- Upcoming calendar events ----
-      var upcomingSection = document.createElement("div");
-      upcomingSection.className = "dash__section";
-      upcomingSection.appendChild(sectionHeader(tr("Upcoming"), upcomingEvents.length ? (upcomingEvents.length + " shown") : ""));
-      var upcomingList = document.createElement("div");
-      upcomingList.className = "list";
-      if (!upcomingEvents.length) {
-        upcomingList.appendChild(insightRow("success", tr("No upcoming events."), tr("See blocks and reminders by day.")));
-      } else {
-        upcomingEvents.forEach(function (event) {
-          var item = document.createElement("button");
-          item.type = "button";
-          item.className = "agenda-preview";
-          item.onclick = function () { Router.go("calendar", { day: event.dayKey }); };
-          var type = document.createElement("span");
-          type.className = "agenda-preview__type agenda-preview__type--" + event.type;
-          type.textContent = tr(event.type === "block" ? "Block" : "Reminder");
-          var body = document.createElement("span");
-          body.className = "agenda-preview__body";
-          var title = document.createElement("span");
-          title.className = "agenda-preview__title";
-          title.textContent = event.title;
-          var meta = document.createElement("span");
-          meta.className = "agenda-preview__meta";
-          meta.textContent = formatCalendarEventWhen(event, today);
-          body.appendChild(title);
-          body.appendChild(meta);
-          item.appendChild(type);
-          item.appendChild(body);
-          item.appendChild(svgIcon("chevron"));
-          upcomingList.appendChild(item);
-        });
-      }
-      upcomingSection.appendChild(upcomingList);
-      root.appendChild(upcomingSection);
 
       // ---- Current focus ----
       var focusSection = document.createElement("div");
@@ -1955,7 +2016,9 @@
     }
 
     async function calendar(container, params) {
-      var today = State.s.today;
+      var today = dayKey(new Date());
+      State.s.today = today;
+      State.s.month = monthKey(new Date());
       var requestedDay = params && params.get("day");
       var selectedDate = parseDayKey(requestedDay) || parseDayKey(today) || new Date();
       var selectedDay = dayKey(selectedDate);
