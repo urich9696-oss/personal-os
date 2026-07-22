@@ -960,50 +960,14 @@
   }
 
   function makeInput(type, value, placeholder, attrs) {
-    if (type === "time") {
-      var timePicker = document.createElement("div");
-      timePicker.className = "input time-picker";
-      var hourSelect = document.createElement("select");
-      hourSelect.className = "time-picker__part";
-      hourSelect.setAttribute("aria-label", "Hour");
-      for (var hour = 0; hour < 24; hour++) {
-        var hourOption = document.createElement("option");
-        hourOption.value = pad2(hour);
-        hourOption.textContent = hourOption.value;
-        hourSelect.appendChild(hourOption);
-      }
-      var separator = document.createElement("span");
-      separator.className = "time-picker__separator";
-      separator.textContent = ":";
-      var minuteSelect = document.createElement("select");
-      minuteSelect.className = "time-picker__part";
-      minuteSelect.setAttribute("aria-label", "Minute");
-      for (var minute = 0; minute < 60; minute++) {
-        var minuteOption = document.createElement("option");
-        minuteOption.value = pad2(minute);
-        minuteOption.textContent = minuteOption.value;
-        minuteSelect.appendChild(minuteOption);
-      }
-      timePicker.appendChild(hourSelect);
-      timePicker.appendChild(separator);
-      timePicker.appendChild(minuteSelect);
-      Object.defineProperty(timePicker, "value", {
-        get: function () { return hourSelect.value + ":" + minuteSelect.value; },
-        set: function (nextValue) {
-          var parts = String(nextValue || "00:00").split(":");
-          hourSelect.value = parts[0] || "00";
-          minuteSelect.value = parts[1] || "00";
-        }
-      });
-      timePicker.value = value || "00:00";
-      if (attrs) {
-        Object.keys(attrs).forEach(function (key) { timePicker.setAttribute(key, attrs[key]); });
-      }
-      return timePicker;
-    }
     var i = document.createElement("input");
     i.className = "input";
     i.type = type || "text";
+    if (i.type === "time") {
+      i.lang = "de-DE";
+      i.step = "60";
+      i.setAttribute("inputmode", "numeric");
+    }
     if (value !== null && typeof value !== "undefined") i.value = value;
     if (placeholder) i.placeholder = placeholder;
     if (attrs) {
