@@ -76,6 +76,14 @@
       "Use": "Verwenden",
       "Tap an hour to add an entry.": "Tippe auf eine Stunde, um einen Eintrag hinzuzufügen.",
       "Save today as structure": "Heute als Struktur speichern",
+      "Routines": "Routinen",
+      "Journal": "Journal",
+      "Today overview": "Heute im Überblick",
+      "Reminder": "Erinnerung",
+      "Time Block": "Zeitblock",
+      "Advanced reflection": "Vertiefende Reflexion",
+      "One thing for tomorrow": "Eine Sache für morgen",
+      "Journal Archive": "Journal-Archiv",
 
       // Module subtitles / instructions
       "Plan your day in time blocks. Load a template to start fast.": "Plane deinen Tag in Zeitblöcken. Lade eine Vorlage für einen schnellen Start.",
@@ -501,6 +509,7 @@
 
       Timers.clearAll();
       renderHeader(parsed);
+      renderTabBar(parsed);
 
       var view = $("view");
       if (!view) return;
@@ -734,20 +743,14 @@
 
   function textLine(title, meta) {
     var wrap = document.createElement("div");
-    wrap.style.display = "flex";
-    wrap.style.alignItems = "baseline";
-    wrap.style.justifyContent = "space-between";
-    wrap.style.gap = "12px";
+    wrap.className = "card-heading";
 
     var t = document.createElement("div");
-    t.style.fontWeight = "820";
-    t.style.letterSpacing = ".2px";
+    t.className = "card-heading__title";
     t.textContent = tr(title);
 
     var m = document.createElement("div");
-    m.style.color = "rgba(18,18,18,.55)";
-    m.style.fontSize = "12px";
-    m.style.fontWeight = "700";
+    m.className = "card-heading__meta";
     m.textContent = tr(meta);
 
     wrap.appendChild(t);
@@ -759,7 +762,7 @@
     var wrap = document.createElement("div");
     wrap.className = "stack";
     var h = document.createElement("div");
-    h.className = "glass card card--strong";
+    h.className = "page-title";
 
     var t = document.createElement("div");
     t.className = "h1";
@@ -891,6 +894,8 @@
     path: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>',
     alignment: '<circle cx="12" cy="12" r="9"/><path d="M15.6 8.4 13.4 13.4 8.4 15.6 10.6 10.6z"/>',
     maintenance: '<path d="M3 12h4l2.5 6 5-12 2.5 6H21"/>',
+    list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.5"/><circle cx="4.5" cy="12" r="1.5"/><circle cx="4.5" cy="18" r="1.5"/>',
+    journal: '<path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v18H7.5A2.5 2.5 0 0 0 5 22.5z"/><path d="M5 4.5v18M9 7h7M9 11h7"/>',
     finance: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M15 14h3"/>',
     calendar: '<rect x="3.5" y="5.5" width="17" height="15" rx="2"/><path d="M7.5 3v5M16.5 3v5M3.5 10h17"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
     vault: '<rect x="3.5" y="4.5" width="17" height="4" rx="1"/><path d="M5.5 8.5V19a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V8.5"/><path d="M10 12.5h4"/>',
@@ -910,7 +915,7 @@
 
   function headerTitle(route) {
     var map = {
-      path: "Path", alignment: "Alignment", maintenance: "Maintenance",
+      path: tr("Day Structures"), alignment: tr("Journal"), maintenance: tr("Routines"),
       calendar: "Calendar", finance: "Finance", vault: "Vault", settings: "Settings"
     };
     return map[route] || "PERSONAL OS";
@@ -929,15 +934,16 @@
     var row = document.createElement("div");
     row.className = "appheader__row";
 
-    if (route === "dashboard") {
+    var primaryRoutes = ["dashboard", "calendar", "maintenance", "alignment", "finance"];
+    if (primaryRoutes.indexOf(route) !== -1) {
       var brand = document.createElement("div");
       brand.className = "appheader__brand";
       var name = document.createElement("div");
       name.className = "appheader__name";
-      name.textContent = tr("PERSONAL OS");
+      name.textContent = route === "dashboard" ? tr("Today") : headerTitle(route);
       var sub = document.createElement("div");
       sub.className = "appheader__sub";
-      sub.textContent = formatNiceDate(new Date());
+      sub.textContent = route === "dashboard" ? formatNiceDate(new Date()) : "PERSONAL OS";
       brand.appendChild(name);
       brand.appendChild(sub);
 
@@ -974,6 +980,38 @@
       row.appendChild(home);
     }
     host.appendChild(row);
+  }
+
+  function renderTabBar(parsed) {
+    var host = $("appnav");
+    if (!host) return;
+    host.innerHTML = "";
+    var activeRoute = parsed.route === "path" ? "calendar" : parsed.route;
+    var tabs = [
+      { route: "dashboard", label: tr("Today"), icon: "dashboard" },
+      { route: "calendar", label: "Calendar", icon: "calendar" },
+      { route: "maintenance", label: tr("Routines"), icon: "list" },
+      { route: "alignment", label: tr("Journal"), icon: "journal" },
+      { route: "finance", label: "Finance", icon: "finance" }
+    ];
+    var inner = document.createElement("div");
+    inner.className = "appnav__inner";
+    tabs.forEach(function (tab) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "navbtn" + (activeRoute === tab.route ? " is-active" : "");
+      button.setAttribute("data-route", tab.route);
+      button.setAttribute("aria-label", tab.label);
+      button.setAttribute("aria-current", activeRoute === tab.route ? "page" : "false");
+      button.appendChild(svgIcon(tab.icon));
+      var label = document.createElement("span");
+      label.textContent = tab.label;
+      button.appendChild(label);
+      button.onclick = function () { Router.go(tab.route); };
+      inner.appendChild(button);
+    });
+    host.appendChild(inner);
+    host.classList.toggle("is-hidden", ["settings", "vault"].indexOf(parsed.route) !== -1);
   }
 
   function progressBar(percent, leftLabel, rightLabel) {
@@ -1578,97 +1616,6 @@
       // ---- Calendar overview ----
       root.appendChild(dashboardWeekCalendarCard(nowD, currentWeekEvents));
 
-      // ---- Primary modules ----
-      var modSection = document.createElement("div");
-      modSection.className = "dash__section";
-      modSection.appendChild(sectionHeader(tr("Modules")));
-      var grid = document.createElement("div");
-      grid.className = "tilegrid";
-
-      grid.appendChild(moduleTile({
-        route: "path", icon: "path", name: "Path", wide: true,
-        status: nextText
-      }));
-      grid.appendChild(moduleTile({
-        route: "alignment", icon: "alignment", name: "Alignment",
-        status: alignText
-      }));
-      grid.appendChild(moduleTile({
-        route: "maintenance", icon: "maintenance", name: "Maintenance",
-        status: perf.total ? (perf.done + "/" + perf.total + " today") : "No items yet",
-        progress: perf.total ? perf.score : 0
-      }));
-      grid.appendChild(moduleTile({
-        route: "finance", icon: "finance", name: "Finance",
-        status: budgetText,
-        progress: budget > 0 ? Math.min(100, spentPct) : 0
-      }));
-      grid.appendChild(moduleTile({
-        route: "vault", icon: "vault", name: "Vault",
-        status: vaultText
-      }));
-      modSection.appendChild(grid);
-      root.appendChild(modSection);
-
-      // ---- Current focus ----
-      var focusSection = document.createElement("div");
-      focusSection.className = "dash__section";
-      focusSection.appendChild(sectionHeader(tr("Current Focus")));
-      var focusCard = document.createElement("div");
-      focusCard.className = "glass card";
-      focusCard.appendChild(textLine(nextEvent ? nextEvent.title : "Daily performance",
-        nextEvent ? formatCalendarEventWhen(nextEvent, today) : "Maintenance"));
-      focusCard.appendChild(spacer(12));
-      focusCard.appendChild(progressBar(
-        perf.total ? perf.score : 0,
-        "Performance",
-        (perf.total ? perf.score : 0) + "%"
-      ));
-      focusSection.appendChild(focusCard);
-      root.appendChild(focusSection);
-
-      // ---- Relevant insights ----
-      var insightsSection = document.createElement("div");
-      insightsSection.className = "dash__section";
-      insightsSection.appendChild(sectionHeader(tr("Relevant Insights")));
-      var insWrap = document.createElement("div");
-      insWrap.className = "list";
-      var insCount = 0;
-      if (readyCount > 0) {
-        insWrap.appendChild(insightRow("info", "Gatekeeper decision ready",
-          readyCount + " item" + (readyCount === 1 ? "" : "s") + " unlocked in Finance"));
-        insCount++;
-      }
-      if (budget > 0 && spent > budget) {
-        insWrap.appendChild(insightRow("critical", "Over budget",
-          "Spent " + formatMoney(spent) + " of " + formatMoney(budget)));
-        insCount++;
-      } else if (budget > 0 && spentPct >= 90) {
-        insWrap.appendChild(insightRow("warning", "Budget nearly used",
-          spentPct + "% of this month’s budget"));
-        insCount++;
-      }
-      if (remainingItems > 0) {
-        insWrap.appendChild(insightRow("neutral", "Open habits & tasks",
-          remainingItems + " still to check off today"));
-        insCount++;
-      }
-      if (!insCount) {
-        insWrap.appendChild(insightRow("success", "All clear",
-          "No open warnings right now."));
-      }
-      insightsSection.appendChild(insWrap);
-      root.appendChild(insightsSection);
-
-      // ---- Settings (restrained) ----
-      var setGrid = document.createElement("div");
-      setGrid.className = "tilegrid";
-      setGrid.appendChild(moduleTile({
-        route: "settings", icon: "settings", name: "Settings", wide: true, muted: true,
-        status: "Backup, restore, preferences"
-      }));
-      root.appendChild(setGrid);
-
       container.appendChild(root);
     }
 
@@ -1676,7 +1623,7 @@
       var mode = (params && params.get("mode")) ? params.get("mode") : "morning";
       if (mode !== "morning" && mode !== "evening" && mode !== "choose") mode = "morning";
 
-      var root = sectionTitle("Alignment", "Reflect and realign — Morning and Evening flows.");
+      var root = sectionTitle(tr("Journal"), "A calm six-minute ritual for morning and evening.");
 
       var seg = segmented(
         mode === "choose" ? "morning" : mode,
@@ -1696,6 +1643,13 @@
       if (mode === "choose") renderChoose(content);
       else if (mode === "morning") await renderMorning(content);
       else if (mode === "evening") await renderEvening(content);
+
+      var archiveLink = document.createElement("button");
+      archiveLink.className = "btnGhost structures-link";
+      archiveLink.type = "button";
+      archiveLink.textContent = tr("Journal Archive") + " →";
+      archiveLink.onclick = function () { Router.go("vault"); };
+      root.appendChild(archiveLink);
 
       container.appendChild(root);
     }
@@ -1746,8 +1700,8 @@
       var gratitude = labeledTextarea("Gratitude", m.gratitude, "Write 3 things you’re grateful for.");
       var intention = labeledTextarea("Intention", m.intention, "Who do you choose to be today?");
 
-      card.appendChild(focus.wrap);
       card.appendChild(gratitude.wrap);
+      card.appendChild(focus.wrap);
       card.appendChild(intention.wrap);
       card.appendChild(spacer(12));
 
@@ -1784,8 +1738,8 @@
       var wins = labeledTextarea("Wins", e.wins, "What went well today?");
       var lessons = labeledTextarea("Lessons", e.lessons, "What did you learn today?");
 
-      var q1 = labeledTextarea("Master Question 1", e.master1,
-        "Did I act as my best self — disciplined, honest, and courageous — especially when it was hard?");
+      var q1 = labeledTextarea("One thing for tomorrow", e.master1,
+        "What is the one thing that will make tomorrow better?");
       var q2 = labeledTextarea("Master Question 2", e.master2,
         "Did I invest my time and attention into assets (skills, health, relationships), or did I drift into liabilities (distraction, impulse, comfort)?");
       var q3 = labeledTextarea("Master Question 3", e.master3,
@@ -1796,9 +1750,16 @@
       card.appendChild(wins.wrap);
       card.appendChild(lessons.wrap);
       card.appendChild(q1.wrap);
-      card.appendChild(q2.wrap);
-      card.appendChild(q3.wrap);
-      card.appendChild(q4.wrap);
+
+      var advanced = document.createElement("details");
+      advanced.className = "journal-advanced";
+      var advancedTitle = document.createElement("summary");
+      advancedTitle.textContent = tr("Advanced reflection");
+      advanced.appendChild(advancedTitle);
+      advanced.appendChild(q2.wrap);
+      advanced.appendChild(q3.wrap);
+      advanced.appendChild(q4.wrap);
+      card.appendChild(advanced);
 
       card.appendChild(spacer(12));
 
@@ -2023,7 +1984,7 @@
 
     async function maintenance(container) {
       await State.loadMaintenance();
-      var root = sectionTitle("Maintenance", "Habits and Daily Tasks. Check them off — this feeds your Performance score.");
+      var root = sectionTitle(tr("Routines"), "Habits, routines and daily tasks — all in one simple list.");
 
       // Score card
       var perf = State.s.perf;
@@ -2039,8 +2000,8 @@
 
       // Add forms
       var addCard = document.createElement("div");
-      addCard.className = "glass card";
-      addCard.appendChild(textLine("Add Items", "Create your system"));
+      addCard.className = "glass card quick-add-card";
+      addCard.appendChild(textLine("Add Items", "Create a routine or task"));
 
       var habitName = labeledInput("New Habit", "", "e.g., Mobility (10 min)");
       var addHabitBtn = document.createElement("button");
@@ -2052,7 +2013,7 @@
           await State.addHabit(habitName.input.value);
           habitName.input.value = "";
           toast("Habit added.");
-          Router.go("maintenance");
+          Router.render();
         } catch (e) { toast("Habit name required."); }
       };
 
@@ -2071,15 +2032,13 @@
           await State.addTask(taskName.input.value, taskCat.input.value);
           taskName.input.value = "";
           toast("Task added.");
-          Router.go("maintenance");
+          Router.render();
         } catch (e) { toast("Task name required."); }
       };
 
       addCard.appendChild(taskName.wrap);
       addCard.appendChild(taskCat.wrap);
       addCard.appendChild(addTaskBtn);
-
-      root.appendChild(addCard);
 
       // Active list
       var listCard = document.createElement("div");
@@ -2109,6 +2068,7 @@
       }
 
       root.appendChild(listCard);
+      root.appendChild(addCard);
 
       // Manage actives
       var manage = document.createElement("div");
@@ -2172,7 +2132,7 @@
             var next = !State.isTargetChecked(kind, id);
             await State.toggleCheck(kind, id, next);
             toast(next ? "Checked." : "Unchecked.");
-            Router.go("maintenance");
+            Router.render();
           } catch (e) {
             toast("Update failed.");
           }
@@ -2210,7 +2170,7 @@
             if (kind === "habit") await State.setHabitActive(id, !active);
             else await State.setTaskActive(id, !active);
             toast("Updated.");
-            Router.go("maintenance");
+            Router.render();
           } catch (e) { toast("Update failed."); }
         };
 
@@ -2407,19 +2367,18 @@
           };
           item.appendChild(edit);
 
-          if (event.type === "reminder") {
-            var remove = document.createElement("button");
-            remove.className = "calendar-event__remove";
-            remove.type = "button";
-            remove.setAttribute("aria-label", tr("Remove") + " " + event.title);
-            remove.textContent = "×";
-            remove.onclick = async function () {
-              await DB.deleteReminder(event.id);
-              toast("Reminder removed.");
-              Router.render();
-            };
-            item.appendChild(remove);
-          }
+          var remove = document.createElement("button");
+          remove.className = "calendar-event__remove";
+          remove.type = "button";
+          remove.setAttribute("aria-label", tr("Remove") + " " + event.title);
+          remove.textContent = "×";
+          remove.onclick = async function () {
+            if (event.type === "block") await DB.deleteBlock(event.id);
+            else await DB.deleteReminder(event.id);
+            toast(event.type === "block" ? "Block removed." : "Reminder removed.");
+            Router.render();
+          };
+          item.appendChild(remove);
           agendaList.appendChild(item);
         });
         agendaCard.appendChild(agendaList);
@@ -2439,6 +2398,17 @@
       var timeInput = makeInput("time", initialStart);
       var endInput = makeInput("time", initialEnd);
       var noteInput = labeledTextarea("Note", editingEvent ? editingEvent.note : "", "Optional details");
+      var entryType = editingEvent ? editingEvent.type : "reminder";
+      if (!editingEvent) {
+        var entryTypeControl = segmented("reminder", [
+          { key: "reminder", label: tr("Reminder") },
+          { key: "block", label: tr("Time Block") }
+        ], function (type) {
+          entryType = type;
+          noteInput.wrap.style.display = type === "reminder" ? "" : "none";
+        });
+        addCard.appendChild(entryTypeControl.el);
+      }
       var endWasEdited = !!editingEvent;
       timeInput.onchange = function () {
         if (!endWasEdited || hmToMinutes(endInput.value) <= hmToMinutes(timeInput.value)) {
@@ -2477,6 +2447,8 @@
               dayKey: dateInput.value, time: timeInput.value, end: endInput.value,
               title: titleInput.value, note: noteInput.textarea.value
             });
+          } else if (entryType === "block") {
+            await DB.addBlock(dateInput.value, timeInput.value, endInput.value, titleInput.value);
           } else {
             await DB.addReminder(
               dateInput.value, timeInput.value, endInput.value,
@@ -2499,12 +2471,18 @@
         addCard.appendChild(cancelEdit);
       }
       root.appendChild(addCard);
+      var structuresLink = document.createElement("button");
+      structuresLink.className = "btnGhost structures-link";
+      structuresLink.type = "button";
+      structuresLink.textContent = tr("Day Structures") + " →";
+      structuresLink.onclick = function () { Router.go("path"); };
+      root.appendChild(structuresLink);
 
       container.appendChild(root);
     }
 
     async function path(container) {
-      var root = sectionTitle("Today’s Path", "Plan your day in time blocks. Load a template to start fast.");
+      var root = sectionTitle(tr("Day Structures"), "Build reusable routines from time blocks and apply them to any day.");
       var today = State.s.today;
       var blocks = await DB.listBlocksByDay(today);
 
@@ -2704,7 +2682,7 @@
 
       // Overview
       var overview = document.createElement("div");
-      overview.className = "glass card card--strong";
+      overview.className = "glass card card--strong finance-hero";
       overview.appendChild(textLine("Budget", month));
       overview.appendChild(spacer(10));
       var pill = document.createElement("div");
@@ -2735,7 +2713,6 @@
       } else {
         chartCard.appendChild(pieChart(slices));
       }
-      root.appendChild(chartCard);
 
       // Set budget
       var budgetCard = document.createElement("div");
@@ -2754,19 +2731,33 @@
         Router.render();
       };
       budgetCard.appendChild(saveB);
-      root.appendChild(budgetCard);
 
       // Expenses
       var expCard = document.createElement("div");
-      expCard.className = "glass card";
+      expCard.className = "glass card quick-add-card";
       expCard.appendChild(textLine("Add Expense", "Track your spending"));
-      var amtI = makeInput("number", "", "0.00", { min: "0", step: "0.01" });
+      var amtI = makeInput("number", "", "0.00", { min: "0", step: "0.01", inputmode: "decimal" });
       var noteI = makeInput("text", "", "e.g., Groceries");
       expCard.appendChild(fieldWrap("Amount", amtI));
       expCard.appendChild(fieldWrap("Note", noteI));
+      var categories = document.createElement("div");
+      categories.className = "choice-chips";
+      ["Food", "Transport", "Home", "Health", "Leisure"].forEach(function (category) {
+        var chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "choice-chip";
+        chip.textContent = category;
+        chip.onclick = function () {
+          noteI.value = category;
+          var chips = categories.querySelectorAll(".choice-chip");
+          for (var ci = 0; ci < chips.length; ci++) chips[ci].classList.toggle("is-active", chips[ci] === chip);
+        };
+        categories.appendChild(chip);
+      });
+      expCard.appendChild(categories);
       expCard.appendChild(spacer(12));
       var addE = document.createElement("button");
-      addE.className = "btnGhost";
+      addE.className = "btnPrimary";
       addE.type = "button";
       addE.textContent = tr("Add Expense");
       addE.onclick = async function () {
@@ -2813,6 +2804,8 @@
         expCard.appendChild(tl);
       }
       root.appendChild(expCard);
+      root.appendChild(chartCard);
+      root.appendChild(budgetCard);
 
       // Recurring monthly expenses
       var recCard = document.createElement("div");
