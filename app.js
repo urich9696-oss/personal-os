@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  var APP_VERSION = "1.0.9";
+  var APP_VERSION = "1.1.0";
 
   function $(id) { return document.getElementById(id); }
 
@@ -61,9 +61,11 @@
       "Priority": "Priorität",
       "Next": "Nächstes",
       "Budget": "Budget",
+      "Upcoming": "Demnächst",
 
       // Module subtitles / instructions
       "Plan your day in time blocks. Load a template to start fast.": "Plane deinen Tag in Zeitblöcken. Lade eine Vorlage für einen schnellen Start.",
+      "See blocks and reminders by day.": "Sieh Blöcke und Erinnerungen nach Tag.",
       "Reflect and realign — Morning and Evening flows.": "Reflektieren und neu ausrichten — Morgen- und Abend-Flow.",
       "Habits and Daily Tasks. Check them off — this feeds your Performance score.": "Gewohnheiten und Tagesaufgaben. Hake sie ab — das speist deinen Leistungs-Score.",
       "Monthly budget, recurring costs, spending breakdown, and the 72h Gatekeeper.": "Monatsbudget, wiederkehrende Kosten, Ausgabenübersicht und der 72h-Türsteher.",
@@ -84,6 +86,14 @@
       "Time-boxed focus": "Fokus in Zeitblöcken",
       "Templates": "Vorlagen",
       "One-tap day plans": "Tagespläne mit einem Tipp",
+      "Agenda": "Agenda",
+      "Add Reminder": "Erinnerung hinzufügen",
+      "Selected day": "Ausgewählter Tag",
+      "Block": "Block",
+      "Reminder": "Erinnerung",
+      "All day": "Ganztägig",
+      "Nothing scheduled for this day.": "Für diesen Tag ist nichts geplant.",
+      "No upcoming events.": "Keine anstehenden Einträge.",
       "Spending Breakdown": "Ausgabenübersicht",
       "Set Monthly Budget": "Monatsbudget festlegen",
       "Add Expense": "Ausgabe hinzufügen",
@@ -120,6 +130,8 @@
       "Master Question 3": "Meisterfrage 3",
       "Master Question 4": "Meisterfrage 4",
       "Title": "Titel",
+      "Date": "Datum",
+      "Time": "Zeit",
       "Start": "Start",
       "End": "Ende",
       "Save today as template": "Heute als Vorlage speichern",
@@ -137,6 +149,8 @@
 
       // Placeholders
       "e.g., Deep Work": "z. B. Konzentriertes Arbeiten",
+      "e.g., Call the dentist": "z. B. Zahnarzt anrufen",
+      "Optional details": "Optionale Details",
       "Template name (e.g., Workday)": "Vorlagenname (z. B. Arbeitstag)",
       "e.g., Groceries": "z. B. Lebensmittel",
       "e.g., Rent": "z. B. Miete",
@@ -168,6 +182,7 @@
       "Let it go": "Loslassen",
       "Cancel": "Abbrechen",
       "Add Recurring": "Wiederkehrend hinzufügen",
+      "Go to today": "Zu heute",
       "Export Backup": "Sicherung exportieren",
       "Import & Merge": "Importieren & zusammenführen",
       "Reset PERSONAL OS": "PERSONAL OS zurücksetzen",
@@ -179,6 +194,9 @@
       "Task added.": "Aufgabe hinzugefügt.",
       "Block added.": "Block hinzugefügt.",
       "Block removed.": "Block entfernt.",
+      "Reminder added.": "Erinnerung hinzugefügt.",
+      "Reminder removed.": "Erinnerung entfernt.",
+      "Reminder updated.": "Erinnerung aktualisiert.",
       "Expense added.": "Ausgabe hinzugefügt.",
       "Expense removed.": "Ausgabe entfernt.",
       "Recurring expense added.": "Wiederkehrende Ausgabe hinzugefügt.",
@@ -202,6 +220,7 @@
       "Save failed.": "Speichern fehlgeschlagen.",
       "Habit name required.": "Name der Gewohnheit erforderlich.",
       "Task name required.": "Aufgabenname erforderlich.",
+      "Title required.": "Titel erforderlich.",
       "Backup exported.": "Sicherung exportiert.",
       "Choose a file first.": "Wähle zuerst eine Datei.",
       "Could not read file.": "Datei konnte nicht gelesen werden.",
@@ -248,6 +267,74 @@
   function formatNiceDate(d) {
     try { return new Intl.DateTimeFormat(localeTag(), { weekday: "short", month: "short", day: "2-digit" }).format(d); }
     catch (e) { return dayKey(d); }
+  }
+
+  function parseDayKey(value) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+    if (!m) return null;
+    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+    return dayKey(d) === value ? d : null;
+  }
+
+  function addDays(date, amount) {
+    var d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+    d.setDate(d.getDate() + amount);
+    return d;
+  }
+
+  function monthBounds(date) {
+    var first = new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
+    var last = new Date(date.getFullYear(), date.getMonth() + 1, 0, 12, 0, 0, 0);
+    return { first: first, last: last, start: dayKey(first), end: dayKey(last) };
+  }
+
+  function formatMonthTitle(date) {
+    try { return new Intl.DateTimeFormat(localeTag(), { month: "long", year: "numeric" }).format(date); }
+    catch (e) { return monthKey(date); }
+  }
+
+  async function listCalendarEvents(startDayKey, endDayKey) {
+    var results = await Promise.all([
+      DB.listBlocksByRange(startDayKey, endDayKey),
+      DB.listRemindersByRange(startDayKey, endDayKey)
+    ]);
+    var events = [];
+    results[0].forEach(function (b) {
+      events.push({
+        type: "block", id: b.id, dayKey: b.dayKey, time: b.start || "",
+        end: b.end || "", title: b.title, note: "", done: false
+      });
+    });
+    results[1].forEach(function (r) {
+      events.push({
+        type: "reminder", id: r.id, dayKey: r.dayKey, time: r.time || "",
+        end: "", title: r.title, note: r.note || "", done: !!r.done
+      });
+    });
+    events.sort(function (a, b) {
+      var aTime = a.time || "00:00";
+      var bTime = b.time || "00:00";
+      return (a.dayKey + aTime + a.title).localeCompare(b.dayKey + bTime + b.title);
+    });
+    return events;
+  }
+
+  async function upcomingCalendarEvents(fromDate, days, limit) {
+    var start = dayKey(fromDate);
+    var end = dayKey(addDays(fromDate, days || 14));
+    var nowTime = pad2(fromDate.getHours()) + ":" + pad2(fromDate.getMinutes());
+    var events = await listCalendarEvents(start, end);
+    return events.filter(function (event) {
+      if (event.done) return false;
+      if (event.dayKey !== start || !event.time) return true;
+      return event.time >= nowTime;
+    }).slice(0, limit || 5);
+  }
+
+  function formatCalendarEventWhen(event, todayKey) {
+    var eventDate = parseDayKey(event.dayKey);
+    var dateLabel = event.dayKey === todayKey ? tr("Today") : (eventDate ? formatNiceDate(eventDate) : event.dayKey);
+    return dateLabel + " · " + (event.time || tr("All day"));
   }
 
   function qs() {
@@ -369,6 +456,7 @@
       try {
         if (current === "dashboard") await Screens.dashboard(inner);
         else if (current === "path") await Screens.path(inner);
+        else if (current === "calendar") await Screens.calendar(inner, parsed.params);
         else if (current === "alignment") await Screens.alignment(inner, parsed.params);
         else if (current === "maintenance") await Screens.maintenance(inner);
         else if (current === "finance") await Screens.finance(inner);
@@ -746,6 +834,7 @@
     alignment: '<circle cx="12" cy="12" r="9"/><path d="M15.6 8.4 13.4 13.4 8.4 15.6 10.6 10.6z"/>',
     maintenance: '<path d="M3 12h4l2.5 6 5-12 2.5 6H21"/>',
     finance: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/><path d="M15 14h3"/>',
+    calendar: '<rect x="3.5" y="5.5" width="17" height="15" rx="2"/><path d="M7.5 3v5M16.5 3v5M3.5 10h17"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17.5h.01M12 17.5h.01"/>',
     vault: '<rect x="3.5" y="4.5" width="17" height="4" rx="1"/><path d="M5.5 8.5V19a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V8.5"/><path d="M10 12.5h4"/>',
     profile: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
     dashboard: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>'
@@ -764,7 +853,7 @@
   function headerTitle(route) {
     var map = {
       path: "Path", alignment: "Alignment", maintenance: "Maintenance",
-      finance: "Finance", vault: "Vault", settings: "Settings"
+      calendar: "Calendar", finance: "Finance", vault: "Vault", settings: "Settings"
     };
     return map[route] || "PERSONAL OS";
   }
@@ -1104,6 +1193,11 @@
       var nextText = nextBlock
         ? (nextBlock.start + " · " + nextBlock.title)
         : (dayBlocks.length ? "All blocks done" : "No blocks planned");
+      var upcomingEvents = await upcomingCalendarEvents(nowD, 14, 5);
+      var nextEvent = upcomingEvents.length ? upcomingEvents[0] : null;
+      var nextCalendarText = nextEvent
+        ? (formatCalendarEventWhen(nextEvent, today) + " · " + nextEvent.title)
+        : tr("No upcoming events.");
 
       // Finance
       var budget = await DB.getBudget(month);
@@ -1147,7 +1241,7 @@
       var headline = document.createElement("div");
       headline.className = "statuscard__headline";
       if (perf.total && remainingItems > 0) headline.textContent = tr("Keep your system on track");
-      else if (nextBlock) headline.textContent = "Next: " + nextBlock.title;
+      else if (nextEvent) headline.textContent = tr("Next") + ": " + nextEvent.title;
       else if (!mJournal) headline.textContent = tr("Begin with your morning journal");
       else headline.textContent = tr("You’re aligned for today");
       status.appendChild(lead);
@@ -1171,7 +1265,7 @@
       rows.appendChild(statusRow(tr("Priority"), perf.total
         ? (perf.done + "/" + perf.total + " done today")
         : "Set up Maintenance"));
-      rows.appendChild(statusRow(tr("Next"), nextText));
+      rows.appendChild(statusRow(tr("Next"), nextCalendarText));
       rows.appendChild(statusRow(tr("Budget"), budgetText));
       status.appendChild(rows);
       root.appendChild(status);
@@ -1186,6 +1280,12 @@
       grid.appendChild(moduleTile({
         route: "path", icon: "path", name: "Path", wide: true,
         status: nextText
+      }));
+      grid.appendChild(moduleTile({
+        route: "calendar", icon: "calendar", name: "Calendar",
+        status: nextEvent
+          ? (formatCalendarEventWhen(nextEvent, today) + " · " + nextEvent.title)
+          : tr("No upcoming events.")
       }));
       grid.appendChild(moduleTile({
         route: "alignment", icon: "alignment", name: "Alignment",
@@ -1208,14 +1308,50 @@
       modSection.appendChild(grid);
       root.appendChild(modSection);
 
+      // ---- Upcoming calendar events ----
+      var upcomingSection = document.createElement("div");
+      upcomingSection.className = "dash__section";
+      upcomingSection.appendChild(sectionHeader(tr("Upcoming"), upcomingEvents.length ? (upcomingEvents.length + " shown") : ""));
+      var upcomingList = document.createElement("div");
+      upcomingList.className = "list";
+      if (!upcomingEvents.length) {
+        upcomingList.appendChild(insightRow("success", tr("No upcoming events."), tr("See blocks and reminders by day.")));
+      } else {
+        upcomingEvents.forEach(function (event) {
+          var item = document.createElement("button");
+          item.type = "button";
+          item.className = "agenda-preview";
+          item.onclick = function () { Router.go("calendar", { day: event.dayKey }); };
+          var type = document.createElement("span");
+          type.className = "agenda-preview__type agenda-preview__type--" + event.type;
+          type.textContent = tr(event.type === "block" ? "Block" : "Reminder");
+          var body = document.createElement("span");
+          body.className = "agenda-preview__body";
+          var title = document.createElement("span");
+          title.className = "agenda-preview__title";
+          title.textContent = event.title;
+          var meta = document.createElement("span");
+          meta.className = "agenda-preview__meta";
+          meta.textContent = formatCalendarEventWhen(event, today);
+          body.appendChild(title);
+          body.appendChild(meta);
+          item.appendChild(type);
+          item.appendChild(body);
+          item.appendChild(svgIcon("chevron"));
+          upcomingList.appendChild(item);
+        });
+      }
+      upcomingSection.appendChild(upcomingList);
+      root.appendChild(upcomingSection);
+
       // ---- Current focus ----
       var focusSection = document.createElement("div");
       focusSection.className = "dash__section";
       focusSection.appendChild(sectionHeader(tr("Current Focus")));
       var focusCard = document.createElement("div");
       focusCard.className = "glass card";
-      focusCard.appendChild(textLine(nextBlock ? nextBlock.title : "Daily performance",
-        nextBlock ? (nextBlock.start + (nextBlock.end ? "–" + nextBlock.end : "")) : "Maintenance"));
+      focusCard.appendChild(textLine(nextEvent ? nextEvent.title : "Daily performance",
+        nextEvent ? formatCalendarEventWhen(nextEvent, today) : "Maintenance"));
       focusCard.appendChild(spacer(12));
       focusCard.appendChild(progressBar(
         perf.total ? perf.score : 0,
@@ -1816,6 +1952,221 @@
         row.appendChild(btn);
         return row;
       }
+    }
+
+    async function calendar(container, params) {
+      var today = State.s.today;
+      var requestedDay = params && params.get("day");
+      var selectedDate = parseDayKey(requestedDay) || parseDayKey(today) || new Date();
+      var selectedDay = dayKey(selectedDate);
+      var bounds = monthBounds(selectedDate);
+      var monthEvents = await listCalendarEvents(bounds.start, bounds.end);
+      var eventsByDay = {};
+
+      monthEvents.forEach(function (event) {
+        if (!eventsByDay[event.dayKey]) eventsByDay[event.dayKey] = [];
+        eventsByDay[event.dayKey].push(event);
+      });
+
+      var root = sectionTitle("Calendar", "See blocks and reminders by day.");
+
+      var monthCard = document.createElement("div");
+      monthCard.className = "glass card calendar";
+
+      var nav = document.createElement("div");
+      nav.className = "calendar__nav";
+
+      function shiftedDay(monthOffset) {
+        var targetMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + monthOffset, 1, 12, 0, 0, 0);
+        var maxDay = new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate();
+        return new Date(targetMonth.getFullYear(), targetMonth.getMonth(), Math.min(selectedDate.getDate(), maxDay), 12, 0, 0, 0);
+      }
+
+      function monthButton(label, offset) {
+        var button = document.createElement("button");
+        button.className = "hbtn calendar__navbtn";
+        button.type = "button";
+        button.setAttribute("aria-label", label);
+        var icon = svgIcon(offset < 0 ? "back" : "chevron");
+        button.appendChild(icon);
+        button.onclick = function () { Router.go("calendar", { day: dayKey(shiftedDay(offset)) }); };
+        return button;
+      }
+
+      nav.appendChild(monthButton("Previous month", -1));
+      var monthTitle = document.createElement("div");
+      monthTitle.className = "calendar__title";
+      monthTitle.textContent = formatMonthTitle(selectedDate);
+      nav.appendChild(monthTitle);
+      nav.appendChild(monthButton("Next month", 1));
+      monthCard.appendChild(nav);
+
+      var todayButton = document.createElement("button");
+      todayButton.className = "calendar__today";
+      todayButton.type = "button";
+      todayButton.textContent = tr("Go to today");
+      todayButton.onclick = function () { Router.go("calendar", { day: today }); };
+      monthCard.appendChild(todayButton);
+
+      var weekdays = document.createElement("div");
+      weekdays.className = "calendar__weekdays";
+      var mondayFirst = effectiveLang() === "de";
+      var weekdayBase = new Date(2023, 0, mondayFirst ? 2 : 1, 12, 0, 0, 0);
+      for (var wi = 0; wi < 7; wi++) {
+        var weekday = document.createElement("div");
+        weekday.textContent = new Intl.DateTimeFormat(localeTag(), { weekday: "narrow" })
+          .format(addDays(weekdayBase, wi));
+        weekdays.appendChild(weekday);
+      }
+      monthCard.appendChild(weekdays);
+
+      var grid = document.createElement("div");
+      grid.className = "calendar__grid";
+      var firstWeekday = bounds.first.getDay();
+      var blankCount = mondayFirst ? ((firstWeekday + 6) % 7) : firstWeekday;
+      for (var blank = 0; blank < blankCount; blank++) {
+        var spacerCell = document.createElement("span");
+        spacerCell.className = "calendar__blank";
+        grid.appendChild(spacerCell);
+      }
+
+      for (var dayNumber = 1; dayNumber <= bounds.last.getDate(); dayNumber++) {
+        (function (number) {
+          var date = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), number, 12, 0, 0, 0);
+          var key = dayKey(date);
+          var dayEvents = eventsByDay[key] || [];
+          var dayButton = document.createElement("button");
+          dayButton.type = "button";
+          dayButton.className = "calendar__day"
+            + (key === today ? " calendar__day--today" : "")
+            + (key === selectedDay ? " calendar__day--selected" : "");
+          dayButton.setAttribute("aria-label", formatNiceDate(date) + (dayEvents.length ? (", " + dayEvents.length + " events") : ""));
+          var numberEl = document.createElement("span");
+          numberEl.textContent = String(number);
+          dayButton.appendChild(numberEl);
+          if (dayEvents.length) {
+            var dots = document.createElement("span");
+            dots.className = "calendar__dots";
+            var hasBlock = dayEvents.some(function (event) { return event.type === "block"; });
+            var hasReminder = dayEvents.some(function (event) { return event.type === "reminder" && !event.done; });
+            if (hasBlock) {
+              var blockDot = document.createElement("span");
+              blockDot.className = "calendar__dot calendar__dot--block";
+              dots.appendChild(blockDot);
+            }
+            if (hasReminder) {
+              var reminderDot = document.createElement("span");
+              reminderDot.className = "calendar__dot calendar__dot--reminder";
+              dots.appendChild(reminderDot);
+            }
+            dayButton.appendChild(dots);
+          }
+          dayButton.onclick = function () { Router.go("calendar", { day: key }); };
+          grid.appendChild(dayButton);
+        })(dayNumber);
+      }
+      monthCard.appendChild(grid);
+      root.appendChild(monthCard);
+
+      var selectedEvents = eventsByDay[selectedDay] || [];
+      var agendaCard = document.createElement("div");
+      agendaCard.className = "glass card";
+      agendaCard.appendChild(textLine("Agenda", formatNiceDate(selectedDate)));
+      agendaCard.appendChild(spacer(10));
+
+      if (!selectedEvents.length) {
+        var empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = tr("Nothing scheduled for this day.");
+        agendaCard.appendChild(empty);
+      } else {
+        var agendaList = document.createElement("div");
+        agendaList.className = "calendar-agenda";
+        selectedEvents.forEach(function (event) {
+          var item = document.createElement("div");
+          item.className = "calendar-event"
+            + (event.done ? " calendar-event--done" : "");
+
+          if (event.type === "reminder") {
+            var toggle = document.createElement("button");
+            toggle.className = "checkrow__btn" + (event.done ? " is-on" : "");
+            toggle.type = "button";
+            toggle.textContent = event.done ? "✓" : "○";
+            toggle.setAttribute("aria-label", event.done ? "Mark reminder open" : "Mark reminder done");
+            toggle.setAttribute("aria-pressed", event.done ? "true" : "false");
+            toggle.onclick = async function () {
+              await DB.setReminderDone(event.id, !event.done);
+              toast("Reminder updated.");
+              Router.render();
+            };
+            item.appendChild(toggle);
+          }
+
+          var eventBody = document.createElement("div");
+          eventBody.className = "calendar-event__body";
+          var eventTitle = document.createElement("div");
+          eventTitle.className = "calendar-event__title";
+          eventTitle.textContent = event.title;
+          var eventMeta = document.createElement("div");
+          eventMeta.className = "calendar-event__meta";
+          eventMeta.textContent = (event.time || tr("All day"))
+            + (event.end ? (" – " + event.end) : "")
+            + (event.note ? (" · " + event.note) : "");
+          eventBody.appendChild(eventTitle);
+          eventBody.appendChild(eventMeta);
+          item.appendChild(eventBody);
+
+          var badge = document.createElement("span");
+          badge.className = "calendar-event__badge calendar-event__badge--" + event.type;
+          badge.textContent = tr(event.type === "block" ? "Block" : "Reminder");
+          item.appendChild(badge);
+
+          if (event.type === "reminder") {
+            var remove = document.createElement("button");
+            remove.className = "calendar-event__remove";
+            remove.type = "button";
+            remove.setAttribute("aria-label", tr("Remove") + " " + event.title);
+            remove.textContent = "×";
+            remove.onclick = async function () {
+              await DB.deleteReminder(event.id);
+              toast("Reminder removed.");
+              Router.render();
+            };
+            item.appendChild(remove);
+          }
+          agendaList.appendChild(item);
+        });
+        agendaCard.appendChild(agendaList);
+      }
+      root.appendChild(agendaCard);
+
+      var addCard = document.createElement("div");
+      addCard.className = "glass card";
+      addCard.appendChild(textLine("Add Reminder", formatNiceDate(selectedDate)));
+      var titleInput = makeInput("text", "", tr("e.g., Call the dentist"));
+      var timeInput = makeInput("time", "09:00");
+      var noteInput = labeledTextarea("Note", "", "Optional details");
+      addCard.appendChild(fieldWrap("Title", titleInput));
+      addCard.appendChild(fieldWrap("Time", timeInput));
+      addCard.appendChild(noteInput.wrap);
+      addCard.appendChild(spacer(12));
+      var addReminderButton = document.createElement("button");
+      addReminderButton.className = "btnPrimary";
+      addReminderButton.type = "button";
+      addReminderButton.textContent = tr("Add Reminder");
+      addReminderButton.onclick = async function () {
+        try {
+          await DB.addReminder(selectedDay, timeInput.value, titleInput.value, noteInput.textarea.value);
+          toast("Reminder added.");
+          Router.render();
+        } catch (e) {
+          toast(e && e.message === "Reminder title required" ? "Title required." : (e && e.message ? e.message : "Add failed."));
+        }
+      };
+      addCard.appendChild(addReminderButton);
+      root.appendChild(addCard);
+
+      container.appendChild(root);
     }
 
     async function path(container) {
@@ -2479,6 +2830,7 @@
 
     return {
       dashboard: dashboard,
+      calendar: calendar,
       path: path,
       alignment: alignment,
       maintenance: maintenance,
