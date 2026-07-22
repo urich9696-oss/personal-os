@@ -14,7 +14,7 @@
   function $(id) { return document.getElementById(id); }
 
   // ---------- Preferences (currency / language / measurement) ----------
-  var Prefs = { currency: "EUR", language: "system", measure: "metric" };
+  var Prefs = { currency: "EUR", language: "system", measure: "metric", theme: "system" };
 
   var CURRENCIES = [
     { code: "EUR", label: "Euro (€)" },
@@ -41,7 +41,16 @@
     { code: "imperial", label: "Imperial (mi, lb)" }
   ];
 
-  var PREF_KEYS = { currency: "pref_currency", language: "pref_language", measure: "pref_measure" };
+  var THEMES = [
+    { code: "system", label: "System" },
+    { code: "light", label: "Light" },
+    { code: "dark", label: "Dark" }
+  ];
+
+  var PREF_KEYS = {
+    currency: "pref_currency", language: "pref_language",
+    measure: "pref_measure", theme: "pref_theme"
+  };
 
   function effectiveLang() {
     if (Prefs.language === "de" || Prefs.language === "en") return Prefs.language;
@@ -87,6 +96,13 @@
       "Scheduled Routine": "Geplante Routine",
       "Repeats weekly": "Wiederholt sich wöchentlich",
       "Weekday": "Wochentag",
+      "Repeat": "Wiederholen",
+      "Daily": "Täglich",
+      "Weekly": "Wöchentlich",
+      "Monthly": "Monatlich",
+      "Day of month": "Tag im Monat",
+      "Appearance": "Darstellung",
+      "All done for today": "Für heute alles erledigt",
 
       // Module subtitles / instructions
       "Plan your day in time blocks. Load a template to start fast.": "Plane deinen Tag in Zeitblöcken. Lade eine Vorlage für einen schnellen Start.",
@@ -272,19 +288,32 @@
     try { document.documentElement.lang = effectiveLang(); } catch (e) {}
   }
 
+  function applyTheme() {
+    try {
+      document.documentElement.setAttribute("data-theme", Prefs.theme || "system");
+      var meta = document.querySelector('meta[name="theme-color"]');
+      var systemDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (meta) meta.content = (Prefs.theme === "dark" || (Prefs.theme === "system" && systemDark))
+        ? "#000000" : "#F2F2F7";
+    } catch (e) {}
+  }
+
   async function loadPrefs() {
     try {
       Prefs.currency = (await DB.metaGet("pref_currency", "EUR")) || "EUR";
       Prefs.language = (await DB.metaGet("pref_language", "system")) || "system";
       Prefs.measure = (await DB.metaGet("pref_measure", "metric")) || "metric";
+      Prefs.theme = (await DB.metaGet("pref_theme", "system")) || "system";
     } catch (e) {}
     applyLang();
+    applyTheme();
   }
 
   async function savePref(key, value) {
     Prefs[key] = value;
     try { await DB.metaSet(PREF_KEYS[key], value); } catch (e) {}
     applyLang();
+    applyTheme();
   }
 
   // ---------- Utilities ----------
@@ -372,6 +401,16 @@
     return out;
   }
 
+  function routineOccursOnDate(routine, date) {
+    if (!date) return false;
+    var recurrence = routine.recurrence || (
+      routine.weekday !== null && typeof routine.weekday !== "undefined" ? "weekly" : "daily"
+    );
+    if (recurrence === "daily") return true;
+    if (recurrence === "monthly") return Number(routine.monthday) === date.getDate();
+    return Number(routine.weekday) === date.getDay();
+  }
+
   function formatMonthTitle(date) {
     try { return new Intl.DateTimeFormat(localeTag(), { month: "long", year: "numeric" }).format(date); }
     catch (e) { return monthKey(date); }
@@ -401,8 +440,7 @@
     if (startDate && endDate) {
       for (var date = startDate; date <= endDate; date = addDays(date, 1)) {
         results[2].forEach(function (routine) {
-          if (routine.active === false || routine.weekday === null || typeof routine.weekday === "undefined" || !routine.start) return;
-          if (Number(routine.weekday) !== date.getDay()) return;
+          if (routine.active === false || !routine.start || !routineOccursOnDate(routine, date)) return;
           events.push({
             type: "routine", id: routine.id, dayKey: dayKey(date),
             time: routine.start, end: routine.end || addMinutesToHM(routine.start, 60),
@@ -678,13 +716,12 @@
     }
 
     function habitAppliesToDay(habit, key) {
-      if (habit.weekday === null || typeof habit.weekday === "undefined") return true;
       var date = parseDayKey(key);
-      return !!date && Number(habit.weekday) === date.getDay();
+      return routineOccursOnDate(habit, date);
     }
 
-    async function addHabit(name, weekday, start, end) {
-      await DB.addHabit(name, weekday, start, end);
+    async function addHabit(name, recurrence, weekday, monthday, start, end) {
+      await DB.addHabit(name, recurrence, weekday, monthday, start, end);
       s.habits = await DB.listHabits();
       s.perf = computePerformanceLocal();
     }
@@ -867,6 +904,22 @@
   }
 
   function makeInput(type, value, placeholder, attrs) {
+    if (type === "time") {
+      var timeSelect = document.createElement("select");
+      timeSelect.className = "input select time-input";
+      timeSelect.setAttribute("aria-label", tr("Time"));
+      for (var minute = 0; minute < 24 * 60; minute++) {
+        var timeOption = document.createElement("option");
+        timeOption.value = minutesToHM(minute);
+        timeOption.textContent = timeOption.value;
+        timeSelect.appendChild(timeOption);
+      }
+      timeSelect.value = value || "00:00";
+      if (attrs) {
+        Object.keys(attrs).forEach(function (key) { timeSelect.setAttribute(key, attrs[key]); });
+      }
+      return timeSelect;
+    }
     var i = document.createElement("input");
     i.className = "input";
     i.type = type || "text";
@@ -1352,7 +1405,7 @@
             blockDot.className = "calendar__dot calendar__dot--block";
             dots.appendChild(blockDot);
           }
-          if (dayEvents.some(function (event) { return event.type === "reminder" && !event.done; })) {
+          if (dayEvents.some(function (event) { return event.type === "reminder"; })) {
             var reminderDot = document.createElement("span");
             reminderDot.className = "calendar__dot calendar__dot--reminder";
             dots.appendChild(reminderDot);
@@ -1623,6 +1676,8 @@
 
       // Finance
       var budget = await DB.getBudget(month);
+      var dashboardTransactions = await DB.listTransactionsByMonth(month);
+      var dashboardRecurring = await DB.listRecurring();
       var spent = (await DB.sumTransactionsForMonth(month)) + (await DB.sumRecurring());
       var remaining = budget - spent;
       var spentPct = budget > 0 ? Math.round((spent / budget) * 100) : 0;
@@ -1650,12 +1705,111 @@
         : "Nothing archived yet";
 
       var remainingItems = perf.total ? (perf.total - perf.done) : 0;
+      var todayReminders = (await DB.listRemindersByDay(today)).filter(function (reminder) {
+        return !reminder.done;
+      });
+      var todayRoutines = State.s.habits.filter(function (routine) {
+        return routine.active !== false && routineOccursOnDate(routine, nowD);
+      });
+      var completedRoutines = todayRoutines.filter(function (routine) {
+        return State.isTargetChecked("habit", routine.id);
+      }).length;
+      var financeSlices = buildExpenseSlices(dashboardTransactions, dashboardRecurring);
 
       var root = document.createElement("div");
       root.className = "dash";
 
       // ---- Calendar overview ----
       root.appendChild(dashboardWeekCalendarCard(nowD, currentWeekEvents));
+
+      var todayGrid = document.createElement("div");
+      todayGrid.className = "today-grid";
+
+      function makeTodayTile(title, icon, route) {
+        var tile = document.createElement("section");
+        tile.className = "today-tile";
+        var tileHeader = document.createElement("button");
+        tileHeader.type = "button";
+        tileHeader.className = "today-tile__header";
+        tileHeader.appendChild(svgIcon(icon));
+        var tileTitle = document.createElement("strong");
+        tileTitle.textContent = title;
+        tileHeader.appendChild(tileTitle);
+        tileHeader.onclick = function () { Router.go(route); };
+        tile.appendChild(tileHeader);
+        return tile;
+      }
+
+      var reminderTile = makeTodayTile(tr("Reminder"), "list", "calendar");
+      reminderTile.classList.add("today-tile--reminders");
+      if (!todayReminders.length) {
+        var reminderEmpty = document.createElement("div");
+        reminderEmpty.className = "today-tile__empty";
+        reminderEmpty.textContent = tr("All done for today");
+        reminderTile.appendChild(reminderEmpty);
+      } else {
+        todayReminders.slice(0, 3).forEach(function (reminder) {
+          var reminderRow = document.createElement("div");
+          reminderRow.className = "today-reminder";
+          var reminderCopy = document.createElement("button");
+          reminderCopy.type = "button";
+          reminderCopy.className = "today-reminder__copy";
+          reminderCopy.textContent = (reminder.time ? reminder.time + " · " : "") + reminder.title;
+          reminderCopy.onclick = function () { Router.go("calendar", { day: today }); };
+          var complete = document.createElement("button");
+          complete.type = "button";
+          complete.className = "today-reminder__complete";
+          complete.setAttribute("aria-label", tr("Checked.") + " " + reminder.title);
+          complete.textContent = "✓";
+          complete.onclick = async function () {
+            await DB.setReminderDone(reminder.id, true);
+            toast("Reminder updated.");
+            Router.render();
+          };
+          reminderRow.appendChild(reminderCopy);
+          reminderRow.appendChild(complete);
+          reminderTile.appendChild(reminderRow);
+        });
+      }
+      todayGrid.appendChild(reminderTile);
+
+      var routineTile = makeTodayTile(tr("Routines"), "maintenance", "maintenance");
+      var routineValue = document.createElement("div");
+      routineValue.className = "today-tile__value";
+      routineValue.textContent = todayRoutines.length
+        ? (completedRoutines + " / " + todayRoutines.length)
+        : "—";
+      var routineMeta = document.createElement("div");
+      routineMeta.className = "today-tile__meta";
+      routineMeta.textContent = todayRoutines.length ? tr("Today Checklist") : tr("No active items yet");
+      routineTile.appendChild(routineValue);
+      routineTile.appendChild(routineMeta);
+      todayGrid.appendChild(routineTile);
+
+      var journalTile = makeTodayTile(tr("Journal"), "journal", "alignment");
+      var journalValue = document.createElement("div");
+      journalValue.className = "today-tile__status";
+      journalValue.innerHTML = '<span class="' + (mJournal ? "is-complete" : "") + '">Morning</span>'
+        + '<span class="' + (eJournal ? "is-complete" : "") + '">Evening</span>';
+      journalTile.appendChild(journalValue);
+      todayGrid.appendChild(journalTile);
+
+      var financeTile = makeTodayTile("Finance", "finance", "finance");
+      financeTile.classList.add("today-tile--finance");
+      if (financeSlices.length) {
+        financeTile.appendChild(pieChart(financeSlices));
+      } else {
+        var emptyChart = document.createElement("div");
+        emptyChart.className = "today-tile__empty-chart";
+        financeTile.appendChild(emptyChart);
+      }
+      var financeMeta = document.createElement("div");
+      financeMeta.className = "today-tile__meta";
+      financeMeta.textContent = budget > 0 ? (formatMoney(remaining) + " left") : formatMoney(spent) + " spent";
+      financeTile.appendChild(financeMeta);
+      todayGrid.appendChild(financeTile);
+
+      root.appendChild(todayGrid);
 
       container.appendChild(root);
     }
@@ -2046,7 +2200,18 @@
 
       var habitName = labeledInput("Scheduled Routine", "", "e.g., Shopping list");
       var todayDate = parseDayKey(State.s.today) || new Date();
+      var recurrenceDayWrap;
+      var recurrenceMonthWrap;
+      var habitRecurrence = makeSelect([
+        { code: "daily", label: tr("Daily") },
+        { code: "weekly", label: tr("Weekly") },
+        { code: "monthly", label: tr("Monthly") }
+      ], "weekly", function (value) {
+        if (recurrenceDayWrap) recurrenceDayWrap.style.display = value === "weekly" ? "" : "none";
+        if (recurrenceMonthWrap) recurrenceMonthWrap.style.display = value === "monthly" ? "" : "none";
+      });
       var habitDay = makeSelect(weekdayOptions(), String(todayDate.getDay()), function () {});
+      var habitMonthday = makeInput("number", String(todayDate.getDate()), "", { min: "1", max: "31", step: "1" });
       var suggestedStart = pad2(Math.min(22, todayDate.getHours() + 1)) + ":00";
       var habitStart = makeInput("time", suggestedStart);
       var habitEnd = makeInput("time", addMinutesToHM(suggestedStart, 60));
@@ -2057,7 +2222,10 @@
       addHabitBtn.textContent = tr("Add Habit");
       addHabitBtn.onclick = async function () {
         try {
-          await State.addHabit(habitName.input.value, habitDay.value, habitStart.value, habitEnd.value);
+          await State.addHabit(
+            habitName.input.value, habitRecurrence.value, habitDay.value,
+            habitMonthday.value, habitStart.value, habitEnd.value
+          );
           habitName.input.value = "";
           toast("Habit added.");
           Router.render();
@@ -2065,7 +2233,12 @@
       };
 
       addCard.appendChild(habitName.wrap);
-      addCard.appendChild(fieldWrap("Weekday", habitDay));
+      addCard.appendChild(fieldWrap("Repeat", habitRecurrence));
+      recurrenceDayWrap = fieldWrap("Weekday", habitDay);
+      recurrenceMonthWrap = fieldWrap("Day of month", habitMonthday);
+      recurrenceMonthWrap.style.display = "none";
+      addCard.appendChild(recurrenceDayWrap);
+      addCard.appendChild(recurrenceMonthWrap);
       var routineTimeRow = document.createElement("div");
       routineTimeRow.className = "row";
       routineTimeRow.appendChild(fieldWrap("Start", habitStart));
@@ -2104,7 +2277,7 @@
 
       var todayWeekday = (parseDayKey(State.s.today) || new Date()).getDay();
       var habits = State.s.habits.filter(function (h) {
-        return !!h.active && (h.weekday === null || typeof h.weekday === "undefined" || Number(h.weekday) === todayWeekday);
+        return !!h.active && routineOccursOnDate(h, parseDayKey(State.s.today) || new Date());
       });
       var tasks = State.s.tasks.filter(function (t) { return !!t.active; });
 
@@ -2149,12 +2322,21 @@
       } else {
         for (var a = 0; a < allHabits.length; a++) {
           var habitLabel = allHabits[a].name;
-          if (allHabits[a].weekday !== null && typeof allHabits[a].weekday !== "undefined") {
+          var habitRepeat = allHabits[a].recurrence || (
+            allHabits[a].weekday !== null && typeof allHabits[a].weekday !== "undefined" ? "weekly" : "daily"
+          );
+          if (habitRepeat === "daily") {
+            habitLabel += " · " + tr("Daily");
+          } else if (habitRepeat === "monthly") {
+            habitLabel += " · " + tr("Monthly") + " " + (allHabits[a].monthday || 1);
+          } else {
             var matchingDay = weekdayOptions().find(function (option) {
               return option.code === String(allHabits[a].weekday);
             });
-            habitLabel += " · " + (matchingDay ? matchingDay.label : "")
-              + (allHabits[a].start ? (" " + allHabits[a].start + "–" + (allHabits[a].end || addMinutesToHM(allHabits[a].start, 60))) : "");
+            habitLabel += " · " + (matchingDay ? matchingDay.label : "");
+          }
+          if (allHabits[a].start) {
+            habitLabel += " " + allHabits[a].start + "–" + (allHabits[a].end || addMinutesToHM(allHabits[a].start, 60));
           }
           manageList.appendChild(makeActiveRow("habit", allHabits[a].id, habitLabel, !!allHabits[a].active));
         }
@@ -2346,7 +2528,7 @@
             var dots = document.createElement("span");
             dots.className = "calendar__dots";
             var hasBlock = dayEvents.some(function (event) { return event.type === "block" || event.type === "routine"; });
-            var hasReminder = dayEvents.some(function (event) { return event.type === "reminder" && !event.done; });
+            var hasReminder = dayEvents.some(function (event) { return event.type === "reminder"; });
             if (hasBlock) {
               var blockDot = document.createElement("span");
               blockDot.className = "calendar__dot calendar__dot--block";
@@ -2782,6 +2964,7 @@
       } else {
         chartCard.appendChild(pieChart(slices));
       }
+      root.appendChild(chartCard);
 
       // Set budget
       var budgetCard = document.createElement("div");
@@ -2873,7 +3056,6 @@
         expCard.appendChild(tl);
       }
       root.appendChild(expCard);
-      root.appendChild(chartCard);
       root.appendChild(budgetCard);
 
       // Recurring monthly expenses
@@ -3080,6 +3262,12 @@
       prefCard.appendChild(fieldWrap("Measurement system",
         makeSelect(MEASURES, Prefs.measure, async function (v) {
           await savePref("measure", v);
+          toast("Preferences saved.");
+          Router.render();
+        })));
+      prefCard.appendChild(fieldWrap("Appearance",
+        makeSelect(THEMES, Prefs.theme, async function (v) {
+          await savePref("theme", v);
           toast("Preferences saved.");
           Router.render();
         })));

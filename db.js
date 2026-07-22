@@ -261,11 +261,13 @@
     return all;
   }
 
-  async function addHabit(name, weekday, start, end) {
+  async function addHabit(name, recurrence, weekday, monthday, start, end) {
     var row = {
       id: uid("habit"),
       name: String(name || "").trim(),
+      recurrence: String(recurrence || "weekly"),
       weekday: weekday === null || typeof weekday === "undefined" || weekday === "" ? null : Number(weekday),
+      monthday: monthday === null || typeof monthday === "undefined" || monthday === "" ? null : Number(monthday),
       start: String(start || "").trim(),
       end: String(end || "").trim(),
       active: true,

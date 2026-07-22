@@ -1335,7 +1335,7 @@ select:focus-visible {
   text-transform: none;
 }
 
-.dash { gap: 0; }
+.dash { gap: var(--space-4); }
 .dashboard-calendar {
   padding: 0;
   border: 0;
@@ -1445,6 +1445,136 @@ select:focus-visible {
   color: var(--color-accent);
 }
 
+.today-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.today-tile {
+  min-width: 0;
+  min-height: 150px;
+  padding: var(--space-4);
+  border-radius: var(--radius-large);
+  background: var(--color-surface-primary);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.today-tile__header {
+  appearance: none;
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  text-align: left;
+  cursor: pointer;
+}
+.today-tile__header .ic svg { width: 19px; height: 19px; }
+.today-tile__header strong {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today-tile__value {
+  margin-top: auto;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.8px;
+}
+.today-tile__meta,
+.today-tile__empty {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.today-reminder {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.today-reminder__copy {
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 550;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.today-reminder__complete {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 2px solid var(--color-accent);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.today-reminder__complete:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+.today-tile__status {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.today-tile__status span {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.today-tile__status span::before {
+  margin-right: 6px;
+  color: var(--color-text-subtle);
+  content: "○";
+}
+.today-tile__status span.is-complete::before {
+  color: var(--color-status-success);
+  content: "●";
+}
+.today-tile--finance .chart { margin: auto 0 0; gap: 0; }
+.today-tile--finance .chart__svg {
+  width: 82px;
+  height: 82px;
+  max-width: 100%;
+}
+.today-tile--finance .legend { display: none; }
+.today-tile__empty-chart {
+  width: 76px;
+  height: 76px;
+  margin: auto 0 0;
+  border: 12px solid var(--color-surface-tertiary);
+  border-radius: 50%;
+}
+.time-input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+}
+
 .toast {
   bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--space-4));
   border-radius: var(--radius-pill);
@@ -1485,4 +1615,55 @@ select:focus-visible {
   .calendar__day--selected,
   .week-calendar__day.is-today strong { color: #fff; }
   select.select { background-image: none; }
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --color-background: #000000;
+  --color-surface-primary: #1C1C1E;
+  --color-surface-secondary: #2C2C2E;
+  --color-surface-tertiary: #3A3A3C;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: rgba(235, 235, 245, 0.84);
+  --color-text-muted: rgba(235, 235, 245, 0.60);
+  --color-text-subtle: rgba(235, 235, 245, 0.42);
+  --color-border-primary: rgba(84, 84, 88, 0.66);
+  --color-border-secondary: rgba(84, 84, 88, 0.42);
+  --color-divider: rgba(84, 84, 88, 0.52);
+  --color-accent: #0A84FF;
+  --color-accent-soft: rgba(10, 132, 255, 0.18);
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.34);
+}
+html[data-theme="dark"] .appheader,
+html[data-theme="dark"] .appnav { background: rgba(28, 28, 30, 0.82); }
+html[data-theme="dark"] .week-calendar__canvas,
+html[data-theme="dark"] .week-calendar__days { background: var(--color-surface-primary); }
+html[data-theme="dark"] .finance-hero {
+  background: linear-gradient(145deg, #1C1C1E 0%, #172231 100%);
+}
+html[data-theme="dark"] select.select { background-image: none; }
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-background: #F2F2F7;
+  --color-surface-primary: #FFFFFF;
+  --color-surface-secondary: #F2F2F7;
+  --color-surface-tertiary: #E5E5EA;
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #3A3A3C;
+  --color-text-muted: #636366;
+  --color-text-subtle: #8E8E93;
+  --color-border-primary: rgba(60, 60, 67, 0.16);
+  --color-border-secondary: rgba(60, 60, 67, 0.10);
+  --color-divider: rgba(60, 60, 67, 0.13);
+  --color-accent: #007AFF;
+  --color-accent-soft: rgba(0, 122, 255, 0.12);
+  --shadow-card: 0 8px 28px rgba(0, 0, 0, 0.07);
+}
+html[data-theme="light"] .appheader,
+html[data-theme="light"] .appnav { background: rgba(249, 249, 249, 0.88); }
+html[data-theme="light"] .week-calendar__canvas,
+html[data-theme="light"] .week-calendar__days { background: #FFFFFF; }
+html[data-theme="light"] .finance-hero {
+  background: linear-gradient(145deg, #FFFFFF 0%, #F4F8FF 100%);
 }
